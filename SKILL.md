@@ -407,6 +407,50 @@ On success: `{ "success": true, "transactionHash": "0x...", "status": "success",
 
 **Polling strategy:** When the user asks to claim or check for rewards, call `GET /v1/epoch` first. If `prevEpochId` exists and you mined in that epoch, try claiming it. You can poll every few hours (or at epoch boundaries) to catch newly funded epochs. If a claim reverts, the epoch may not be funded yet — try again later.
 
+### For Pool Operators
+
+If mining as an operator through a pool contract, use the pool contract address as miner in challenge/submit calls.
+
+**Submit**
+
+`POST /v1/submit` with `"miner": "0xPOOL_CONTRACT"`
+
+On pass, coordinator may return:
+- `mode: "pool"`
+- `rawCalldata` (direct `submitReceipt(...)`)
+- `wrappedTransaction` and `transaction` (call pool `submitToMining(bytes)`)
+
+Always submit the returned `transaction` object as-is.
+
+**Claim**
+
+For pool claims, request wrapped calldata:
+
+```
+GET /v1/claim-calldata?epochs=20,21&target=0xPOOL_CONTRACT
+```
+
+If `target` is valid pool contract, response uses:
+- `mode: "pool"`
+- `transaction` calling `triggerClaim(uint64[])`
+
+If no `target`, default direct miner claim flow is returned.
+
+**Bonus claim**
+
+Same pattern:
+
+```
+GET /v1/bonus/claim-calldata?epochs=42&target=0xPOOL_CONTRACT
+```
+
+Wrapped call uses `triggerBonusClaim(uint64[])`.
+
+**Errors**
+
+- `target_missing_pool_methods`: target contract does not expose required pool methods.
+- Invalid/non-contract target: fix address or deploy pool contract with required ABI.
+
 ## Bankr Interaction Rules
 
 **Natural language** (via `POST /agent/prompt`) — ONLY for:
