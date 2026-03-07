@@ -266,16 +266,26 @@ curl -s -X POST "${COORDINATOR_URL:-https://coordinator.agentmoney.net}/v1/submi
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
   -d '{
-    "miner": "MINER_ADDRESS",
+    "miner": "MINER_OR_POOL_ADDRESS",
     "challengeId": "CHALLENGE_ID",
     "artifact": "YOUR_SINGLE_LINE_ARTIFACT",
-    "nonce": "NONCE_USED_IN_CHALLENGE_REQUEST"
+    "nonce": "NONCE_USED_IN_CHALLENGE_REQUEST",
+    "pool": true
   }'
 ```
 
+Use `"pool": true` only when mining through a pool contract. Omit or set to `false` for direct (EOA) mining.
+
 When auth is enabled, include `-H "Authorization: Bearer $TOKEN"`. When auth is disabled, omit it.
 
-**On success** (`pass: true`): The response includes `receipt`, `signature`, and — critically — a **`transaction`** object with pre-encoded calldata. Proceed to Step D.
+**On success** (`pass: true`): The response includes `receipt`, `signature`, and a **`transaction`** object. Submit the `transaction` as-is (backward compatible). Response shape:
+- `mode`: `"eoa"` | `"pool"`
+- `calldata`: raw `submitReceipt(...)` calldata
+- `rawCalldata`: (present in pool mode) same as calldata
+- `wrappedTransaction`: (present in pool mode) call pool `submitToMining(bytes)`
+- `transaction`: always present; submit this object via Bankr
+
+Proceed to Step D.
 
 **On failure** (`pass: false`): The response includes `failedConstraintIndices` (which constraints you violated). **Request a new challenge** with a different nonce — do not retry the same one. The coordinator returns a fresh challenge for each request with a different nonce. See **Error Handling** for 401/404 handling.
 
@@ -329,6 +339,15 @@ Go back to Step A to request the next challenge (with a new nonce). Each solve e
 
 **When to stop:** If the LLM consistently fails after many attempts (e.g. 5+ different challenges), inform the user. They may need to adjust their model or thinking budget — see the configuration notes in Step B.
 
+### Pool Mode (optional)
+
+If mining as an operator through a pool contract, set `miner` to the pool contract address in challenge/submit calls. `POST /v1/submit` supports optional `"pool": true`. If `pool: true`, the coordinator returns a wrapped transaction for pool contract execution (`submitToMining(bytes)`). If omitted or `false`, the normal direct miner flow is unchanged.
+
+**Pool contract ABI requirements.** The pool contract must expose:
+- `submitToMining(bytes)` — for posting receipts
+- `triggerClaim(uint64[])` — for claiming mining rewards
+- `triggerBonusClaim(uint64[])` — for claiming bonus rewards
+
 ### 5. Claim Rewards
 
 **When to claim:** Each epoch lasts 24 hours (mainnet) or 30 minutes (testnet). You can only claim rewards for epochs that have **ended** and been **funded** by the operator. Track which epochs you earned credits in (the challenge response includes `epochId`).
@@ -369,7 +388,12 @@ curl -s "${COORDINATOR_URL:-https://coordinator.agentmoney.net}/v1/claim-calldat
 
 # Multiple epochs (comma-separated)
 curl -s "${COORDINATOR_URL:-https://coordinator.agentmoney.net}/v1/claim-calldata?epochs=20,21,22"
+
+# Pool claim (optional target)
+curl -s "${COORDINATOR_URL:-https://coordinator.agentmoney.net}/v1/claim-calldata?epochs=20,21&target=0xPOOL"
 ```
+
+Without `target` → existing direct miner claim behavior. With `target=0xPOOL` → wrapped pool claim tx returned (calls `triggerClaim(uint64[])`).
 
 2. Submit the returned `transaction` via Bankr (same pattern as posting receipts — synchronous, no job polling):
 
@@ -399,57 +423,13 @@ On success: `{ "success": true, "transactionHash": "0x...", "status": "success",
 
    Response (200): `{ "enabled": true, "epochId": "42", "isBonusEpoch": true, "claimsOpen": true, "reward": "1000.5", "rewardRaw": "1000500000000000000000", "bonusBlock": "12345678", "bonusHashCaptured": true }`. Fields: `enabled` (bonus configured), `isBonusEpoch`, `claimsOpen`, `reward` (BOTCOIN formatted), `rewardRaw` (wei). When disabled: `{ "enabled": false }`.
 
-2. **Bonus claim calldata** — `GET /v1/bonus/claim-calldata?epochs=42`. Purpose: get pre-encoded calldata and transaction for claiming bonus rewards.
+2. **Bonus claim calldata** — `GET /v1/bonus/claim-calldata?epochs=42` (or `?epochs=42&target=0xPOOL` for pool). Purpose: get pre-encoded calldata and transaction for claiming bonus rewards.
 
-   Response (200): `{ "calldata": "0x...", "transaction": { "to": "0x...", "chainId": 8453, "value": "0", "data": "0x..." } }`. Submit the `transaction` object via Bankr API or wallet.
+   Response (200): `{ "calldata": "0x...", "transaction": { "to": "0x...", "chainId": 8453, "value": "0", "data": "0x..." } }`. Submit the `transaction` object via Bankr API or wallet. With `target=0xPOOL`, wrapped call uses `triggerBonusClaim(uint64[])`.
 
 **Flow:** Call `/v1/bonus/status?epochs=42` to see if epoch 42 is a bonus epoch and if claims are open. If `isBonusEpoch && claimsOpen`, call `/v1/bonus/claim-calldata?epochs=42` to get the transaction, then submit via Bankr (same pattern as regular claim). If not a bonus epoch, use the regular `GET /v1/claim-calldata` flow above.
 
 **Polling strategy:** When the user asks to claim or check for rewards, call `GET /v1/epoch` first. If `prevEpochId` exists and you mined in that epoch, try claiming it. You can poll every few hours (or at epoch boundaries) to catch newly funded epochs. If a claim reverts, the epoch may not be funded yet — try again later.
-
-### For Pool Operators
-
-If mining as an operator through a pool contract, use the pool contract address as miner in challenge/submit calls.
-
-**Submit**
-
-`POST /v1/submit` with `"miner": "0xPOOL_CONTRACT"`
-
-On pass, coordinator may return:
-- `mode: "pool"`
-- `rawCalldata` (direct `submitReceipt(...)`)
-- `wrappedTransaction` and `transaction` (call pool `submitToMining(bytes)`)
-
-Always submit the returned `transaction` object as-is.
-
-**Claim**
-
-For pool claims, request wrapped calldata:
-
-```
-GET /v1/claim-calldata?epochs=20,21&target=0xPOOL_CONTRACT
-```
-
-If `target` is valid pool contract, response uses:
-- `mode: "pool"`
-- `transaction` calling `triggerClaim(uint64[])`
-
-If no `target`, default direct miner claim flow is returned.
-
-**Bonus claim**
-
-Same pattern:
-
-```
-GET /v1/bonus/claim-calldata?epochs=42&target=0xPOOL_CONTRACT
-```
-
-Wrapped call uses `triggerBonusClaim(uint64[])`.
-
-**Errors**
-
-- `target_missing_pool_methods`: target contract does not expose required pool methods.
-- Invalid/non-contract target: fix address or deploy pool contract with required ABI.
 
 ## Bankr Interaction Rules
 
@@ -481,6 +461,8 @@ Use one retry helper for all coordinator calls.
 - **`GET /v1/challenge`** — 429/5xx: retry. 401: re-auth then retry. 403: stop (insufficient balance).
 - **`POST /v1/submit`** — 429/5xx: retry. 401: re-auth, retry same solve. 404: stale challenge; discard solve, fetch new challenge. 200 `pass:false`: solver failed constraints (not transport).
 - **`GET /v1/claim-calldata`** — 429/5xx: retry. 400: fix epoch input format.
+- **`GET /v1/bonus/claim-calldata`** — 429/5xx: retry. 400: fix epoch input format.
+- **`target_missing_pool_methods`** (claim/bonus with `target`): target contract is not pool-compatible for requested wrapped path.
 - **`GET /v1/stake-approve-calldata`** — 429/5xx: retry. 400: use `amount` in base units (wei).
 - **`GET /v1/stake-calldata`** — 429/5xx: retry. 400: use `amount` in base units (wei).
 - **`GET /v1/unstake-calldata`** — 429/5xx: retry.
