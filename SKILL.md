@@ -238,14 +238,9 @@ Response contains:
   - `required` — boolean; if `true`, you **must** include a `reasoningTrace` to pass
   - `schemaVersion` — currently `3`
   - `maxSteps` / `minSteps` — bounds on trace step count
-  - `citationTargetRate` — target fraction of `extract_fact` citations that match the document (aim for >= 0.5)
+  - `citationTargetRate` — minimum fraction of `extract_fact` citations that must match the document
   - `citationMethod` — `"paragraph_N"`: provide paragraph index citations (`paragraph_1`, `paragraph_2`, ...)
   - `submitFields` — list of fields the submit endpoint expects
-
-**Compatibility note (important during migration):**
-- Today, `questions` and `constraints` are typically string arrays.
-- Future coordinator versions may return keyed objects (for example `{ key, text }`).
-- Your parser should support both formats and normalize internally before solving.
 
 #### Step B: Solve the Hybrid Challenge
 
@@ -267,7 +262,6 @@ If the coordinator returns `solveInstructions`, include them in the prompt. **If
 
 The output instruction above must be the last thing the model sees before responding.
 
-Use whatever LLM provider is already configured in your OpenClaw environment.
 
 **If solve pass rate is poor, use recovery multi-pass (same fetched challenge):**
 - Default to one high-quality solve pass.
@@ -277,27 +271,28 @@ Use whatever LLM provider is already configured in your OpenClaw environment.
   3. Pass 3 (optional): final constraints checklist only (word count, includes, forbidden letter, acrostic).
 - Submit only the best final artifact/trace once.
 - Do not spam multiple submit attempts for the same challenge.
-- Aim for trace quality where at least ~50% of `extract_fact` citations are directly supported by the cited paragraph text.
-- Obvious bogus traces (fake paragraph IDs, invented values, broken compute chains) are rejected hard.
 
 **Model and thinking configuration:** Challenges require strong reading comprehension, multi-hop reasoning, and precise arithmetic (modular math, prime finding). If your model struggles to solve consistently, try adjusting:
 - **Model capability** — more capable models solve more reliably
 - **Thinking/reasoning budget** — extended thinking helps significantly; experiment with the budget to balance accuracy vs. speed
-- A good target is consistent solves under 2 minutes with a high pass rate
+- A good target is consistent solves under 2 minutes with a decent pass rate.
 
 Tips for solving:
+- **Map constraints to questions first**: Each constraint references question numbers (e.g. "headquarters city of the company that answers Question 7"). Answer that question to get the company, then extract the required value from that company. Do not guess or substitute.
 - Questions require multi-hop reasoning (for example, filtered best/worst entity selection)
+- Some questions may require combining information from multiple passages to arrive at the correct answer — read the full document, not just a summary
+- The document may contain speculative, hypothetical, or retracted statements that include plausible-looking numbers — only use confirmed, factual statements when extracting data
+- Entity information is dispersed across multiple passages in varying formats — do not assume all facts about an entity appear in one place
 - Watch for aliases — entities are referenced by multiple names throughout the document
 - The `companies` array lists all valid entity names — answers must match one of these exactly
-- Ignore hypothetical and speculative statements (red herrings)
-- The document may contain conflicting data points for the same entity — read carefully and cross-reference
 - You must satisfy **every constraint** to pass (deterministic verification; no AI grading)
+- **Word count**: Count words precisely before submitting. Words are split on spaces. Tokens like `71` or `43+36=79` count as one word each. Avoid punctuation-only tokens.
 
 **Artifact construction checklist (verify before submitting):**
 1. **Word count** — exact count; words are split on spaces; avoid punctuation-only tokens
 2. **Required tokens** — must include each required string (city, last name, country) as exact substrings
-3. **Prime number** — must appear as digits (e.g. `37` not "thirty-seven")
-4. **Equation** — must be exactly `A+B=C` with digits, no spaces (e.g. `12+34=46`)
+3. **Prime number** — must appear as digits (e.g. `37` not "thirty-seven"). The constraint specifies which question's company (e.g. "employees of the answer to Question 1"). First answer that question to get the company, then extract that company's employee count. Formula: nextPrime((employees mod 100) + 11). Use mod, add, next_prime as separate compute_logic steps.
+4. **Equation** — must be exactly `A+B=C` with digits, no spaces (e.g. `12+34=46`). The constraint specifies which question's company for A and B (e.g. "Q1 revenue" for A, "Q8 revenue" for B). A = (Q1 company's Q1 revenue mod 50) + 10; B = (Q8 company's Q4 revenue mod 50) + 10; C = A + B.
 5. **Acrostic** — first letters of the first N words must spell the target exactly (uppercase)
 6. **Forbidden letter** — must not contain the specified letter (case-insensitive)
 
@@ -342,18 +337,18 @@ Along with the artifact, you must build a structured **reasoning trace** — a J
 {
   "step_id": "r1",
   "action": "revision",
-  "note": "Found conflicting employee counts. Using the value from the internal workforce review.",
+  "note": "Found correct employee count. Using the value from the internal workforce review.",
   "revisedStep": "e1"
 }
 ```
 
 **Trace quality guidelines:**
 - Include at least 3 steps (minimum) and no more than 200 steps (maximum)
-- Each `step_id` must be unique across the trace
-- For `extract_fact` steps, `source` must be `paragraph_N`. The coordinator verifies value/paragraph honesty with tolerant nearby matching and target >= 50% citation rate.
-- For `compute_logic` steps, the math must be correct — the coordinator recomputes and rejects mismatches. Double-check mod arithmetic (e.g. X mod 90 = remainder when X is divided by 90).
-- Backtrack and revision steps are encouraged when you notice contradictions in the document
-- **Pass requires both**: artifact satisfies all constraints AND trace passes (>=50% citation match, correct compute chain)
+- `step_id` must be a **string** (e.g. `"e1"`, `"c1"`), not a number. Use unique string IDs throughout.
+- For `extract_fact` steps, `source` must be `paragraph_N`. **Citation workflow**: (1) Split the document on blank lines (`\n\n`) to get paragraphs. (2) Count them — documents typically have 15–30 paragraphs. (3) For each fact, find the paragraph that actually contains both the entity name and the extracted value. (4) Cite that paragraph number. Never cite paragraph_N where N exceeds the total count. Citations are verified: the cited paragraph must contain both the value and the entity.
+- For `compute_logic` steps: use **only** the supported operations (`add`, `mod`, `next_prime`, etc.). Do NOT use custom operations like `calculate_prime_constraint`. Break compound logic into atomic steps: e.g. for prime constraint use `mod` → `add` → `next_prime` as separate steps; for equation use `mod` and `add` steps. `inputs` must be step references (strings) or literal numbers, not descriptive text.
+- Double-check mod arithmetic. Backtrack and revision steps are encouraged when you notice issues.
+- **Pass requires both**: a correct artifact AND a valid reasoning trace with accurate citations and correct computations
 
 **Full trace example:**
 ```json
@@ -585,7 +580,6 @@ curl -s -X POST https://api.bankr.bot/agent/submit \
 
 On success: `{ "success": true, "transactionHash": "0x...", "status": "success", "blockNumber": "...", "gasUsed": "..." }`.
 
-**Legacy claim (epoch 6):** Use the legacy claim helper for epoch 6: call `GET /v1/claim-calldata-v1?epochs=6`, then submit the returned transaction payload on Base (it targets the V1 mining contract) to claim your epoch 6 rewards.
 
 **Bonus epochs:** Before claiming, check if an epoch is a bonus epoch:
 
