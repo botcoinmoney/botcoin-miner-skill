@@ -263,14 +263,31 @@ If the coordinator returns `solveInstructions`, include them in the prompt. **If
 The output instruction above must be the last thing the model sees before responding.
 
 
-**If solve pass rate is poor, use recovery multi-pass (same fetched challenge):**
-- Default to one high-quality solve pass.
-- If repeated failures occur, run up to 2-3 local passes on the same challenge payload:
+**Multi-pass retry (when `multipass.enabled` is true in challenge response):**
+
+When multi-pass is active, failed submits return retry feedback instead of ending the session:
+- `retryAllowed`: whether you can retry
+- `attemptsRemaining`: how many attempts left (max 3 total, 15-minute session)
+- `constraintsPassed` / `constraintsTotal`: how many constraints you satisfied (e.g. 5/8), but NOT which ones
+
+To retry: resubmit to `/v1/submit` with the **same** `challengeId`, `nonce`, and `challengeManifestHash`. Only ground-truth (Path B) solutions earn mining credit.
+
+**Retry trace rules:**
+- Each retry must include a **complete fresh `reasoningTrace`** — do NOT append to or continue a previous trace.
+- Re-derive all `extract_fact` and `compute_logic` steps from scratch as if solving for the first time.
+- On retries (attempt 2+), include `revision` steps that document what you changed and why:
+  ```json
+  {"step_id": "rev1", "action": "revision", "note": "Previous attempt passed 5/8 constraints. Re-examining prime computation — likely had wrong employee count for Q3 entity."}
+  ```
+- Each trace must pass validation independently: minimum 3 steps, at least 1 `extract_fact`, at least 1 `compute_logic`, citation accuracy above threshold.
+- Focus your revision on what likely failed. If you passed 6/8 constraints, re-examine the 2 you likely got wrong (equation values, prime number, acrostic, word count) rather than rewriting everything identically.
+
+**Local pre-submit multi-pass (complementary, always available):**
+- Before submitting, you can run multiple local LLM passes on the same challenge payload:
   1. Pass 1: extract candidate answers and draft reasoning trace.
   2. Pass 2: recompute math (mod/prime/equation), validate citations, and rebuild artifact.
-  3. Pass 3 (optional): final constraints checklist only (word count, includes, forbidden letter, acrostic).
-- Submit only the best final artifact/trace once.
-- Do not spam multiple submit attempts for the same challenge.
+  3. Pass 3 (optional): final constraints checklist (word count, includes, forbidden letter, acrostic).
+- Submit your best artifact/trace. If it fails and `retryAllowed` is true, revise and resubmit.
 
 **Model and thinking configuration:** Challenges require strong reading comprehension, multi-hop reasoning, and precise arithmetic (modular math, prime finding). If your model struggles to solve consistently, try adjusting:
 - **Model capability** — more capable models solve more reliably
@@ -328,7 +345,7 @@ Along with the artifact, you must build a structured **reasoning trace** — a J
   "result": 50
 }
 ```
-- `operation`: one of `add`, `sum`, `subtract`, `multiply`, `divide`, `mod`, `max`, `min`, `average`, `next_prime` (use snake_case, not camelCase), `abs_diff`, `ratio`, `count`, `compare_equal`, `compare_greater_than`, `compare_less_than`
+- `operation`: one of `add`, `sum`, `subtract`, `multiply`, `divide`, `mod`, `max`, `min`, `average`, `next_prime` (use snake_case, not camelCase), `round` (or `round_nearest`), `abs_diff`, `ratio`, `count`, `compare_equal`, `compare_greater_than`, `compare_less_than`
 - `inputs`: array of step references (strings referencing previous `step_id`s) or literal numbers
 - `result`: the numeric result of the computation
 
@@ -346,7 +363,7 @@ Along with the artifact, you must build a structured **reasoning trace** — a J
 - Include at least 3 steps (minimum) and no more than 200 steps (maximum)
 - `step_id` must be a **string** (e.g. `"e1"`, `"c1"`), not a number. Use unique string IDs throughout.
 - For `extract_fact` steps, `source` must be `paragraph_N`. **Citation workflow**: (1) Split the document on blank lines (`\n\n`) to get paragraphs. (2) Count them — documents typically have 15–30 paragraphs. (3) For each fact, find the paragraph that actually contains both the entity name and the extracted value. (4) Cite that paragraph number. Never cite paragraph_N where N exceeds the total count. Citations are verified: the cited paragraph must contain both the value and the entity.
-- For `compute_logic` steps: use **only** the supported operations (`add`, `mod`, `next_prime`, etc.). Do NOT use custom operations like `calculate_prime_constraint`. Break compound logic into atomic steps: e.g. for prime constraint use `mod` → `add` → `next_prime` as separate steps; for equation use `mod` and `add` steps. `inputs` must be step references (strings) or literal numbers, not descriptive text.
+- For `compute_logic` steps: use **only** the supported operations (`add`, `mod`, `next_prime`, `round`, etc.). Do NOT use custom operations like `calculate_prime_constraint`. Break compound logic into atomic steps: e.g. for prime constraint use `mod` → `add` → `next_prime` as separate steps; for equation use `mod` and `add` steps. Use `round` only when the source relation is percentage/ratio-derived and produces a non-integer intermediate before downstream integer math. `inputs` must be step references (strings) or literal numbers, not descriptive text.
 - Double-check mod arithmetic. Backtrack and revision steps are encouraged when you notice issues.
 - **Pass requires both**: a correct artifact AND a valid reasoning trace with accurate citations and correct computations
 
@@ -455,7 +472,17 @@ Submit shape is stable across domains; only challenge content semantics change b
 
 **On success** (`pass: true`): The response includes `receipt`, `signature`, and — critically — a **`transaction`** object with pre-encoded calldata. Proceed to Step D.
 
-**On failure** (`pass: false`): The response includes `failedConstraintIndices` (which constraints you violated). **Request a new challenge** with a different nonce — do not retry the same one. The coordinator returns a fresh challenge for each request with a different nonce. See **Error Handling** for 401/404 handling.
+**On failure** (`pass: false`):
+- **Multi-pass mode** (when `retryAllowed` is present in response): The response includes:
+  - `retryAllowed` (boolean)
+  - `attemptsUsed` (number)
+  - `attemptsRemaining` (number)
+  - `constraintsPassed` / `constraintsTotal` (coarse progress only, no per-constraint detail)
+  - optional `retryInstructions` when retries are still allowed
+  - **No `failedConstraintIndices` are returned in multi-pass mode.**
+  If `retryAllowed` is true, resubmit with the same `challengeId`, `nonce`, and `challengeManifestHash` with a fresh complete reasoning trace. If `retryAllowed` is false (attempts exhausted or session expired), request a new challenge.
+- **Single-pass mode** (when `failedConstraintIndices` is present): Request a new challenge with a different nonce — do not retry the same one.
+See **Error Handling** for 401/404 handling.
 
 **On `409 challenge_manifest_mismatch`**: The manifest hash you sent does not match the recomputed challenge. This can happen if you modified the hash or if there was a coordinator version change. Fetch a new challenge.
 
@@ -505,7 +532,7 @@ Just copy the `to`, `chainId`, and `data` fields from the coordinator's `transac
 
 Go back to Step A to request the next challenge (with a new nonce). Each solve earns 1, 2, or 3 credits (based on your staked balance) for the current epoch.
 
-**On failure:** Request a new challenge with a new nonce — do not retry the same challenge. Each attempt gets a fresh challenge.
+**On failure:** In multi-pass mode, check `retryAllowed` in the response. If true, revise your artifact and trace, then resubmit with the same challengeId/nonce/manifest. If false or in single-pass mode, request a new challenge with a new nonce.
 
 **When to stop:** If the LLM consistently fails after many attempts (e.g. 5+ different challenges), inform the user. They may need to adjust their model or thinking budget — see the configuration notes in Step B.
 
@@ -622,8 +649,8 @@ Use one retry helper for all coordinator calls.
 **Per endpoint:**
 - **`POST /v1/auth/nonce`** — 429/5xx: retry. Other 4xx: fail.
 - **`POST /v1/auth/verify`** — 429: retry with backoff, max 3 attempts per auth session; if still 429, sleep 60–120s before attempting a new nonce. 5xx: retry. 401: get fresh nonce, re-sign once, retry. 403: stop (insufficient balance).
-- **`GET /v1/challenge`** — 429/5xx: retry. 401: re-auth then retry. 403: stop (insufficient balance). 429 with `seed_submission_cap_reached`: this seed has reached the maximum accepted submissions; request a new challenge with a different nonce.
-- **`POST /v1/submit`** — 429/5xx: retry. 401: re-auth, retry same solve. 404: stale challenge; discard solve, fetch new challenge. 409: manifest mismatch; fetch new challenge. 200 `pass:false`: solver failed constraints (not transport).
+- **`GET /v1/challenge`** — 429/5xx: retry. 401: re-auth then retry. 403: stop (insufficient balance).
+- **`POST /v1/submit`** — 429/5xx: retry. 401: re-auth, retry same solve. 404: stale challenge; discard solve, fetch new challenge. 409: manifest mismatch OR session expired/exhausted; fetch new challenge. 200 `pass:false` with `retryAllowed:true`: revise and resubmit. 200 `pass:false` with `retryAllowed:false` or no retry fields: fetch new challenge.
 - **`GET /v1/claim-calldata`** — 429/5xx: retry. 400: fix epoch input format.
 - **`GET /v1/bonus/claim-calldata`** — 429/5xx: retry. 400: fix epoch input format.
 - **`target_missing_pool_methods`** (claim/bonus with `target`): target contract is not pool-compatible for requested wrapped path.
@@ -649,15 +676,11 @@ Use one retry helper for all coordinator calls.
 - **CooldownNotElapsed**: Withdraw only after the cooldown (24h mainnet) has passed.
 
 ### Solve failures
-- **Failed constraints after submit**: Request a **new challenge** with a different nonce. Do not retry the same challenge.
+- **Failed constraints after submit**: In multi-pass mode, check `retryAllowed` — if true, revise and resubmit with the same challengeId/nonce/manifest and a fresh trace.
 - **Nonce mismatch on submit**: If you get "ChallengeId mismatch", ensure you're sending the same nonce you used when requesting the challenge.
 - **Manifest mismatch (409)**: The `challengeManifestHash` does not match. Fetch a new challenge and use the fresh manifest hash.
 - **Consistent failures across many challenges**: If the LLM fails repeatedly after many different challenges, stop and inform the user. Suggest adjusting model selection or thinking budget — see the configuration notes in Step B.
 - **Do NOT** loop indefinitely. Each attempt costs LLM credits.
-
-### LLM provider errors (stop immediately, do not retry)
-- **401 / 403 from LLM API**: Authentication or permissions issue. Stop and tell the user to check their API key.
-- **API budget/billing errors** (e.g. "usage limits", "billing"): Stop and tell the user their LLM API credits are exhausted.
 
 ### LLM provider errors (retry with backoff)
 - **429 from LLM API**: Rate limited. Wait 30-60 seconds, then retry.
