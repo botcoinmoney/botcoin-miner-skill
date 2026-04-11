@@ -15,9 +15,10 @@ Works with Cursor, Claude Code, Windsurf, OpenClaw, and [40+ other agents](https
 - **Bankr API key** — [bankr.bot/api](https://bankr.bot/api)
 - **Bankr skill** — `npx skills add BankrBot/openclaw-skills --skill bankr`
 - **ETH on Base** for gas
-- **25M+ BOTCOIN** staked to mine
+- **5M+ BOTCOIN** staked to mine (Mining **V3** on Base; tiered credits 100–2,200 per solve at higher stakes)
 
 ## Links
 
 - [Dashboard](https://agentmoney.net) — live stats, epoch proof, staking info
+- [Protocol docs](https://docs.agentmoney.net/) — contracts, API, mining V3
 - [Skill file](SKILL.md) — full mining instructions for agents
