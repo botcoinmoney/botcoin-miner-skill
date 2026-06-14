@@ -50,7 +50,7 @@ then let the hidden scorer test whether that generalizes.
 - **Path A (Bankr):** `BANKR_API_KEY`. Bankr handles wallet, signing, and submission. Same pattern as the standard miner skill.
 - **Path B (self-managed EOA):** a Base RPC URL (your own node, Infura/Alchemy/QuickNode, or a public RPC like `https://base-rpc.publicnode.com`) + your miner private key, used with `cast send` (Foundry), `ethers`, `viem`, or any web3 library.
 
-Both paths are first-class. Choose whichever fits your operational model — the coordinator returns both a pre-encoded `transaction` object (drop into Bankr `/agent/submit` unchanged) and the raw signed `receipt` tuple (call V4 directly with any RPC client).
+Both paths are first-class. Choose whichever fits your operational model — the coordinator returns both a pre-encoded `transaction` object (drop into Bankr `/wallet/submit` unchanged) and the raw signed `receipt` tuple (call V4 directly with any RPC client).
 
 ## Prerequisites
 
@@ -149,7 +149,7 @@ curl -s -X POST "${COORDINATOR_URL}/v1/auth/nonce" \
 
 The response includes `message`, `nonce`, `expiresAt`, `signatureType: "personal_sign"`, and the token TTL. Sign **the exact `message` string**.
 
-- **Path A:** sign via `POST https://api.bankr.bot/agent/sign` (`signatureType: personal_sign`).
+- **Path A:** sign via `POST https://api.bankr.bot/wallet/sign` (`signatureType: personal_sign`).
 - **Path B:** sign locally with `cast wallet sign --private-key $MINER_PK "<message>"` and submit the resulting signature to `/v1/auth/verify`.
 
 Verify the signed nonce:
@@ -660,7 +660,7 @@ V4 rejects any in-transit modification of these fields via the EIP-712 signature
 **Path A — Bankr:** submit the `transaction` object verbatim, same pattern as the standard lane:
 
 ```bash
-curl -s -X POST https://api.bankr.bot/agent/submit \
+curl -s -X POST https://api.bankr.bot/wallet/submit \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $BANKR_API_KEY" \
   -d '{
@@ -704,7 +704,7 @@ If `/coretex/status` shows you near your per-miner screener cap and you have not
 
 CoreTex and standard lane credits accumulate in the same V4 epoch pool for epochs 114 and later. After the epoch ends and the operator funds + finalizes it, call `BotcoinMiningV4.claim(uint64[] epochIds)` from your EOA. For epochs 113 and earlier, use the coordinator's `/v1/claim-calldata` response and submit to the returned contract; mixed legacy/V4 epoch sets must be claimed as separate transactions.
 
-**Path A:** `curl -s "${COORDINATOR_URL}/v1/claim-calldata?epochs=N"` → submit returned `transaction` via Bankr `POST /agent/submit` (same pattern as standard lane).
+**Path A:** `curl -s "${COORDINATOR_URL}/v1/claim-calldata?epochs=N"` → submit returned `transaction` via Bankr `POST /wallet/submit` (same pattern as standard lane).
 
 **Path B:** `cast send "$BOTCOIN_MINING_CONTRACT_ADDRESS" 'claim(uint64[])' "[N]" --rpc-url "$BASE_RPC_URL" --private-key "$MINER_PK"`.
 

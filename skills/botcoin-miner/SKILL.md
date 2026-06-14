@@ -1,47 +1,57 @@
 ---
 name: botcoin-miner
 description: "Mine BOTCOIN by solving AI challenges on Base with V4 mining settlement and stake-gated eligibility."
-metadata: { "openclaw": { "emoji": "⛏", "requires": { "env": ["BANKR_API_KEY"], "skills": ["bankr"] } } }
+metadata: { "openclaw": { "emoji": "⛏" } }
 ---
 
 # BOTCOIN Miner
 
 Mine BOTCOIN by solving hybrid natural language challenges. Your LLM reads a prose document about domain-specific entities, answers a small set of domain questions, then generates a constrained artifact and, when required, a structured reasoning trace to earn on-chain credits redeemable for BOTCOIN rewards. Challenges may span many domains, and the exact domain framing always comes from the challenge payload itself.
 
-**Minimum tooling:** `curl` and your Bankr API key. **Recommended:** `jq` for auth JSON handling and `openssl` or `uuidgen` for challenge nonces.
+**Minimum tooling:** `curl`. **Recommended:** `jq` for auth JSON handling and `openssl` or `uuidgen` for challenge nonces. If you're self-custodying the key, also install `cast` (Foundry) or an equivalent EVM signing/broadcast tool.
 
-## Prerequisites
+## Signing path: choose one
 
-1. **Bankr API key** with write access enabled. Set as `BANKR_API_KEY` env var.
-   - Sign up at [bankr.bot/api](https://bankr.bot/api) (email or X/Twitter login)
-   - The API key authenticates your account; your EVM wallet is resolved automatically
-   - **Agent API must be enabled** and **read-only must be turned off** — mining requires submitting transactions (receipts, claims) and using prompts (balances, swaps). Enable these at bankr.bot/api.
-   - **Recommended:** Configure your API key's `allowedIps` at [bankr.bot/api](https://bankr.bot/api) to restrict signing to your server's IP address only. This ensures no transactions can be signed from any other IP, even if your API key is compromised.
+Mining requires a Base EVM wallet that can (1) sign EIP-191 `personal_sign` messages for coordinator auth and (2) broadcast transactions to Base. **Bankr is not required** — it's just one convenient option. Pick whichever fits your setup:
 
-2. **Bankr skill installed.** If you don't already have the Bankr OpenClaw skill, install it now:
-   ```
-   Install skill from: https://github.com/BankrBot/openclaw-skills/blob/main/bankr/SKILL.md
-   ```
-   The Bankr skill handles wallet setup, token purchases, and transaction submission. It is required for all on-chain operations in this mining flow.
+### Path A — Bankr (managed key, easiest)
 
-3. **ETH on Base for gas.** Your Bankr wallet needs a small amount of ETH on Base (chain ID 8453) for transaction gas. Typical costs are <$0.01 per mining receipt submission and per claim. If your wallet has no ETH, use Bankr to bridge or buy some before mining:
-   ```
-   "bridge $1 of ETH to base"
-   ```
+Bankr custodies the key, exposes a REST API for signing and tx submit, and handles swaps/bridges with natural-language prompts. Good when you don't want to manage a private key yourself.
 
-4. **Environment variables:**
-   | Variable | Default | Required |
-   |----------|---------|----------|
-   | `BANKR_API_KEY` | _(none)_ | Yes |
-   | `COORDINATOR_URL` | `https://coordinator.agentmoney.net` | No |
-   | `BOTCOIN_MINING_CONTRACT_ADDRESS` | `0xBc71E2428cc0955b3dF9f38F5cF5DE22a1fC1D9b` | direct receipt/claim calls |
-   | `BOTCOIN_STAKE_CONTRACT_ADDRESS` | `0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea` | stake checks/direct staking |
+- Sign up at [bankr.bot/api](https://bankr.bot/api) (email or X/Twitter login). Set `BANKR_API_KEY` env var.
+- **Agent API must be enabled** and **read-only must be turned off** — mining requires submitting transactions (receipts, claims) and using prompts (balances, swaps). Enable these at bankr.bot/api.
+- **Recommended:** Configure your API key's `allowedIps` at [bankr.bot/api](https://bankr.bot/api) to restrict signing to your server's IP address only. No transactions can then be signed from any other IP, even if your API key is compromised.
+- The Bankr OpenClaw skill is an optional helper, not a requirement: <https://github.com/BankrBot/openclaw-skills/blob/main/bankr/SKILL.md>.
+- **Endpoint note (recently changed):** Bankr migrated raw transaction submit and signing from `/agent/*` to `/wallet/*`. `POST /agent/submit` and `POST /agent/sign` now return 404 — use **`POST /wallet/submit`** and **`POST /wallet/sign`**. Natural-language `POST /agent/prompt`, async polling `GET /agent/job/{id}`, and `GET /agent/me` are unchanged.
 
-   Receipt and claim transactions target **BotcoinMiningV4**
-   (`0xBc71E2428cc0955b3dF9f38F5cF5DE22a1fC1D9b`). Stake, unstake,
-   withdraw, and tier checks use the **staking contract**
-   (`0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea`). Do not submit mining
-   receipts to the staking contract.
+### Path B — Self-custody (your key + any Base RPC)
+
+If you already manage an EVM key safely (hardware wallet, encrypted keystore, KMS, dedicated signer service), you can mine without any third-party API. The coordinator returns ready-to-broadcast calldata; you sign locally and `eth_sendRawTransaction` to any Base RPC.
+
+- Have an EVM private key for your mining wallet. Treat it like a hot wallet: keep it off shared hosts, store it encrypted, and limit its balance to what the miner needs.
+- Set `MINER_ADDRESS` (your wallet) and `MINER_PRIVATE_KEY` (or use a keystore / signer of your choice).
+- Pick any Base RPC endpoint (Alchemy, Infura, QuickNode, Base's public RPC `https://mainnet.base.org`, or your own node). Set `BASE_RPC_URL`.
+- All examples below show both paths side-by-side. The self-custody flow uses `cast send` / `cast wallet sign` from Foundry; any other signer (ethers, viem, web3.py, hardware wallet UI) works the same way — the coordinator just hands you `{to, chainId, value, data}` and you broadcast it.
+
+### Common prerequisites (both paths)
+
+- **ETH on Base for gas.** ~$0.01 per receipt submission and per claim is typical. Bridge or buy a few dollars of ETH on Base before mining.
+- **Environment variables:**
+  | Variable | Default | Required |
+  |----------|---------|----------|
+  | `BANKR_API_KEY` | _(none)_ | Path A only |
+  | `MINER_ADDRESS` | _(none)_ | Path B only |
+  | `MINER_PRIVATE_KEY` | _(none)_ | Path B only (or use a keystore/signer) |
+  | `BASE_RPC_URL` | `https://mainnet.base.org` | Path B only |
+  | `COORDINATOR_URL` | `https://coordinator.agentmoney.net` | No |
+  | `BOTCOIN_MINING_CONTRACT_ADDRESS` | `0xBc71E2428cc0955b3dF9f38F5cF5DE22a1fC1D9b` | Path B direct receipt/claim calls |
+  | `BOTCOIN_STAKE_CONTRACT_ADDRESS` | `0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea` | stake checks/direct staking |
+
+  Receipt and claim transactions target **BotcoinMiningV4**
+  (`0xBc71E2428cc0955b3dF9f38F5cF5DE22a1fC1D9b`). Stake, unstake,
+  withdraw, and tier checks use the **staking contract**
+  (`0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea`). Do not submit mining
+  receipts to the staking contract.
 
 ## Golden Rules
 
@@ -54,16 +64,28 @@ Mine BOTCOIN by solving hybrid natural language challenges. Your LLM reads a pro
 
 When the user asks to mine BOTCOIN, follow these steps in order:
 
-### 1. Authenticate and Get Miner Address
+### 1. Resolve the Miner Address
 
-Resolve the user's Base EVM wallet address from Bankr:
+**Path A (Bankr):** Look up the user's Base EVM wallet from their API key:
 
 ```bash
 curl -s https://api.bankr.bot/agent/me \
   -H "X-API-Key: $BANKR_API_KEY"
 ```
 
-Extract the **first Base/EVM wallet address** from the response. This is the miner address.
+Extract the **first EVM wallet address** from `wallets[]`. That is the miner address.
+
+**Path B (self-custody):** The miner address is the public address of your local key. Either set it directly:
+
+```bash
+export MINER_ADDRESS=0xYourMinerWallet
+```
+
+or derive it from the private key:
+
+```bash
+export MINER_ADDRESS=$(cast wallet address --private-key "$MINER_PRIVATE_KEY")
+```
 
 **CHECKPOINT**: Tell the user their mining wallet address. Example:
 > Your mining wallet is `0xABC...DEF` on Base. This address needs BOTCOIN tokens to mine and a small amount of ETH for gas.
@@ -82,22 +104,21 @@ The miner needs at least **5,000,000 BOTCOIN** to mine. Miners must **stake** BO
 | >= 50,000,000 BOTCOIN | 1,075 credits |
 | >= 100,000,000 BOTCOIN | 2,200 credits |
 
-**Check balances** using Bankr natural language (async — returns jobId, poll until complete):
+**BOTCOIN token address:** `0xA601877977340862Ca67f816eb079958E5bd0BA3` — verify against `GET ${COORDINATOR_URL}/v1/token` if needed.
+
+**Path A — Bankr (natural language, async):**
 
 ```bash
+# Check balances
 curl -s -X POST https://api.bankr.bot/agent/prompt \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $BANKR_API_KEY" \
   -d '{"prompt": "what are my balances on base?"}'
 ```
 
-Response: `{ "success": true, "jobId": "...", "status": "pending" }`. Poll `GET https://api.bankr.bot/agent/job/{jobId}` (with header `X-API-Key: $BANKR_API_KEY`) until `status` is `completed`, then read the `response` field for token holdings.
+Response: `{ "success": true, "jobId": "...", "status": "pending" }`. Poll `GET https://api.bankr.bot/agent/job/{jobId}` (with header `X-API-Key: $BANKR_API_KEY`) until `status` is `completed`, then read the `response` field. (Job polling is unchanged — still under `/agent/job/...`.)
 
-**If BOTCOIN balance is below 5,000,000**, help the user buy tokens:
-
-Bankr uses Uniswap pools (not Clanker). Use the **swap** format with the real BOTCOIN token address. Swap enough to reach at least 5M BOTCOIN (e.g. `swap $10 of ETH to ...` depending on price):
-
-**BOTCOIN token address:** `0xA601877977340862Ca67f816eb079958E5bd0BA3` — verify against `GET ${COORDINATOR_URL}/v1/token` if needed.
+If BOTCOIN is below 5M, swap into it (Bankr uses Uniswap pools, not Clanker):
 
 ```bash
 curl -s -X POST https://api.bankr.bot/agent/prompt \
@@ -106,9 +127,7 @@ curl -s -X POST https://api.bankr.bot/agent/prompt \
   -d '{"prompt": "swap $10 of ETH to 0xA601877977340862Ca67f816eb079958E5bd0BA3 on base"}'
 ```
 
-Poll until complete. Re-check balance after purchase.
-
-**If ETH balance is zero or very low** (<0.001 ETH), the user needs gas money:
+If ETH is zero or below ~0.001:
 
 ```bash
 curl -s -X POST https://api.bankr.bot/agent/prompt \
@@ -116,6 +135,22 @@ curl -s -X POST https://api.bankr.bot/agent/prompt \
   -H "X-API-Key: $BANKR_API_KEY" \
   -d '{"prompt": "bridge $2 of ETH to base"}'
 ```
+
+Poll until complete. Re-check balance after each prompt.
+
+**Path B — Self-custody (read directly from chain):**
+
+```bash
+# BOTCOIN ERC-20 balance
+cast call --rpc-url "$BASE_RPC_URL" \
+  0xA601877977340862Ca67f816eb079958E5bd0BA3 \
+  "balanceOf(address)(uint256)" "$MINER_ADDRESS"
+
+# Native ETH balance on Base
+cast balance --rpc-url "$BASE_RPC_URL" "$MINER_ADDRESS"
+```
+
+If BOTCOIN is below 5M, swap via any DEX router on Base (Uniswap V3, the BankrBot UI in the browser, or your preferred aggregator) — the skill doesn't dictate how. Send some ETH to `$MINER_ADDRESS` from any source (CEX withdrawal, bridge, Bankr) for gas.
 
 **CHECKPOINT**: Confirm both BOTCOIN (>= 5M) and ETH (> 0) before proceeding.
 
@@ -127,7 +162,7 @@ Staking contract: `0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea`. Miners must **st
 
 **Minimum stake:** 5,000,000 BOTCOIN (base units: `5000000000000000000000000`)
 
-**Stake flow (two transactions):** Coordinator returns pre-encoded transactions; submit each via Bankr `POST /agent/submit`.
+**Stake flow (two transactions):** Coordinator returns pre-encoded transactions; broadcast each via your chosen path.
 
 ```bash
 # Step 1: Get approve transaction (amount in base units)
@@ -137,10 +172,12 @@ curl -s "${COORDINATOR_URL:-https://coordinator.agentmoney.net}/v1/stake-approve
 curl -s "${COORDINATOR_URL:-https://coordinator.agentmoney.net}/v1/stake-calldata?amount=5000000000000000000000000"
 ```
 
-Each endpoint returns `{ "transaction": { "to": "...", "chainId": 8453, "value": "0", "data": "0x..." } }`. Submit via Bankr:
+Each endpoint returns `{ "transaction": { "to": "...", "chainId": 8453, "value": "0", "data": "0x..." } }`.
+
+**Path A — Bankr:** Use **`POST /wallet/submit`** (the old `/agent/submit` route was retired and now returns 404):
 
 ```bash
-curl -s -X POST https://api.bankr.bot/agent/submit \
+curl -s -X POST https://api.bankr.bot/wallet/submit \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $BANKR_API_KEY" \
   -d '{
@@ -157,10 +194,19 @@ curl -s -X POST https://api.bankr.bot/agent/submit \
 
 (Use the same submit pattern for stake, unstake, and withdraw — copy `to`, `chainId`, `value`, `data` from the coordinator response.)
 
+**Path B — Self-custody:** Broadcast the transaction with your local key. With Foundry's `cast`:
+
+```bash
+cast send --rpc-url "$BASE_RPC_URL" --private-key "$MINER_PRIVATE_KEY" \
+  "$TX_TO" "$TX_DATA"
+```
+
+`cast send` will encode `to`/`data` correctly when `data` is passed as the trailing positional arg, or use the `--create`-style alternative for raw calldata. For more control, build the typed-tx with viem/ethers and call `eth_sendRawTransaction` yourself. Wait for the receipt before the next step.
+
 **Unstake flow (two steps, with cooldown):**
 
-1. **Request unstake** — `GET /v1/unstake-calldata`. Submit via Bankr. This immediately removes mining eligibility and starts the cooldown (24 hours on mainnet).
-2. **Withdraw** — After the cooldown has elapsed, `GET /v1/withdraw-calldata`. Submit via Bankr.
+1. **Request unstake** — `GET /v1/unstake-calldata`. Submit. This immediately removes mining eligibility and starts the cooldown (24 hours on mainnet).
+2. **Withdraw** — After the cooldown has elapsed, `GET /v1/withdraw-calldata`. Submit.
 
 ```bash
 # Unstake
@@ -177,24 +223,28 @@ curl -s "${COORDINATOR_URL:-https://coordinator.agentmoney.net}/v1/withdraw-call
 Before requesting challenges, complete the auth handshake to obtain a bearer token. Use the robust pattern below — `jq` variables ensure the exact message is passed without newline corruption from manual copy-paste:
 
 ```bash
-# Step 1: Get nonce and extract message
+# Step 1: Get nonce and extract message (same for both paths)
 NONCE_RESPONSE=$(curl -s -X POST "${COORDINATOR_URL:-https://coordinator.agentmoney.net}/v1/auth/nonce" \
   -H "Content-Type: application/json" \
-  -d '{"miner":"MINER_ADDRESS"}')
+  -d "$(jq -n --arg miner "$MINER_ADDRESS" '{miner: $miner}')")
 MESSAGE=$(echo "$NONCE_RESPONSE" | jq -r '.message')
 
-# Step 2: Sign via Bankr (message passed via variable — no copy-paste)
-SIGN_RESPONSE=$(curl -s -X POST https://api.bankr.bot/agent/sign \
+# Step 2A: Sign via Bankr — use /wallet/sign (the old /agent/sign route returns 404)
+SIGN_RESPONSE=$(curl -s -X POST https://api.bankr.bot/wallet/sign \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $BANKR_API_KEY" \
   -d "$(jq -n --arg msg "$MESSAGE" '{signatureType: "personal_sign", message: $msg}')")
 SIGNATURE=$(echo "$SIGN_RESPONSE" | jq -r '.signature')
 
+# Step 2B: OR sign locally with your own key (no third-party API needed)
+#   cast wallet sign performs EIP-191 personal_sign over the raw message bytes.
+SIGNATURE=$(cast wallet sign --private-key "$MINER_PRIVATE_KEY" "$MESSAGE")
+
 # Step 3: Verify and obtain token (and auto-bind if available)
 VERIFY_RESPONSE=$(curl -s -X POST "${COORDINATOR_URL:-https://coordinator.agentmoney.net}/v1/auth/verify" \
   -H "Content-Type: application/json" \
   -d "$(jq -n \
-    --arg miner "MINER_ADDRESS" \
+    --arg miner "$MINER_ADDRESS" \
     --arg msg "$MESSAGE" \
     --arg sig "$SIGNATURE" \
     --arg agentId "${AGENT_ID:-}" \
@@ -205,7 +255,7 @@ VERIFY_RESPONSE=$(curl -s -X POST "${COORDINATOR_URL:-https://coordinator.agentm
 TOKEN=$(echo "$VERIFY_RESPONSE" | jq -r '.token')
 ```
 
-Replace `MINER_ADDRESS` with your wallet address.
+Use Step 2A **or** Step 2B — not both. Either produces a valid EIP-191 personal_sign signature; the coordinator just runs `ecrecover` and doesn't care which signer you used.
 If you already know your ERC-8004 `agentId`, set `AGENT_ID=<id>` before running step 3.
 
 **Auth-time ERC-8004 bind behavior:**
@@ -241,7 +291,7 @@ Generate a unique nonce for each challenge request (e.g. `uuidgen`, `openssl ran
 
 ```bash
 NONCE=$(openssl rand -hex 16)   # or uuidgen, or any unique string per request
-curl -s "${COORDINATOR_URL:-https://coordinator.agentmoney.net}/v1/challenge?miner=MINER_ADDRESS&nonce=$NONCE" \
+curl -s "${COORDINATOR_URL:-https://coordinator.agentmoney.net}/v1/challenge?miner=$MINER_ADDRESS&nonce=$NONCE" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -537,10 +587,12 @@ The coordinator's success response includes ready-to-submit transaction objects:
 }
 ```
 
-Submit each transaction directly via Bankr `POST /agent/submit` — **no ABI encoding needed**. For the mining receipt, `transaction.to` must be BotcoinMiningV4 (`0xBc71E2428cc0955b3dF9f38F5cF5DE22a1fC1D9b`), not the staking contract. First the receipt:
+Broadcast each transaction — **no ABI encoding needed**, just copy `to`, `chainId`, `data` (and `gasLimit` if present) from the coordinator response. For the mining receipt, `transaction.to` must be BotcoinMiningV4 (`0xBc71E2428cc0955b3dF9f38F5cF5DE22a1fC1D9b`), not the staking contract.
+
+**Path A — Bankr** (`POST /wallet/submit`; the old `/agent/submit` route is gone). First the receipt:
 
 ```bash
-curl -s -X POST https://api.bankr.bot/agent/submit \
+curl -s -X POST https://api.bankr.bot/wallet/submit \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $BANKR_API_KEY" \
   -d '{
@@ -558,7 +610,7 @@ curl -s -X POST https://api.bankr.bot/agent/submit \
 Then the vouch transaction (same pattern, fields from `vouchTransaction`):
 
 ```bash
-curl -s -X POST https://api.bankr.bot/agent/submit \
+curl -s -X POST https://api.bankr.bot/wallet/submit \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $BANKR_API_KEY" \
   -d '{
@@ -573,11 +625,23 @@ curl -s -X POST https://api.bankr.bot/agent/submit \
   }'
 ```
 
-Just copy the `to`, `chainId`, and `data` fields from each transaction object in the coordinator response directly into the Bankr submit call.
+With `waitForConfirmation: true`, Bankr returns synchronously: `{ success, transactionHash, status, blockNumber, gasUsed }`. The vouch transaction is fire-and-forget (`waitForConfirmation: false`) since it doesn't gate the next step.
 
-**The receipt response is synchronous** — with `waitForConfirmation: true`, Bankr returns directly with `{ success, transactionHash, status, blockNumber, gasUsed }` when the transaction is mined. The vouch transaction can be fire-and-forget (`waitForConfirmation: false`) since it doesn't gate the next step. Same submit pattern for claim — both use `POST /agent/submit`.
+**Path B — Self-custody** (Foundry `cast send`, or any tx-broadcast library):
 
-**IMPORTANT**: Use `POST /agent/submit` (raw transaction) for ALL contract interactions. Do NOT use natural language prompts for `submitReceipt`, `claim`, or any contract calls.
+```bash
+# Receipt — wait for confirmation before the next step
+cast send --rpc-url "$BASE_RPC_URL" --private-key "$MINER_PRIVATE_KEY" \
+  "$RECEIPT_TX_TO" "$RECEIPT_TX_DATA"
+
+# 8004 vouch — fire-and-forget (use --async if your tool supports it)
+cast send --rpc-url "$BASE_RPC_URL" --private-key "$MINER_PRIVATE_KEY" \
+  --gas-limit 100000 "$VOUCH_TX_TO" "$VOUCH_TX_DATA"
+```
+
+If you prefer, sign typed-tx locally and call `eth_sendRawTransaction` against any Base RPC; the on-chain effect is identical.
+
+**IMPORTANT**: All contract calls (receipt, vouch, stake/unstake/withdraw, claim) use raw transactions only. Do NOT use Bankr's natural-language `/agent/prompt` for `submitReceipt`, `claim`, or any contract interaction — only for swaps, bridges, and balance lookups.
 
 #### Step E: Repeat
 
@@ -639,25 +703,34 @@ curl -s "${COORDINATOR_URL:-https://coordinator.agentmoney.net}/v1/claim-calldat
 curl -s "${COORDINATOR_URL:-https://coordinator.agentmoney.net}/v1/claim-calldata?epochs=20,21,22"
 ```
 
-2. Submit the returned `transaction` via Bankr (same pattern as posting receipts — synchronous, no job polling):
+2. Broadcast the returned `transaction` (same pattern as posting receipts).
 
-```bash
-curl -s -X POST https://api.bankr.bot/agent/submit \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: $BANKR_API_KEY" \
-  -d '{
-    "transaction": {
-      "to": "TRANSACTION_TO_FROM_RESPONSE",
-      "chainId": TRANSACTION_CHAINID_FROM_RESPONSE,
-      "value": "0",
-      "data": "TRANSACTION_DATA_FROM_RESPONSE"
-    },
-    "description": "Claim BOTCOIN mining rewards",
-    "waitForConfirmation": true
-  }'
-```
+   **Path A — Bankr** (`POST /wallet/submit`, synchronous, no job polling):
 
-On success: `{ "success": true, "transactionHash": "0x...", "status": "success", "blockNumber": "...", "gasUsed": "..." }`.
+   ```bash
+   curl -s -X POST https://api.bankr.bot/wallet/submit \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key: $BANKR_API_KEY" \
+     -d '{
+       "transaction": {
+         "to": "TRANSACTION_TO_FROM_RESPONSE",
+         "chainId": TRANSACTION_CHAINID_FROM_RESPONSE,
+         "value": "0",
+         "data": "TRANSACTION_DATA_FROM_RESPONSE"
+       },
+       "description": "Claim BOTCOIN mining rewards",
+       "waitForConfirmation": true
+     }'
+   ```
+
+   On success: `{ "success": true, "transactionHash": "0x...", "status": "success", "blockNumber": "...", "gasUsed": "..." }`.
+
+   **Path B — Self-custody:**
+
+   ```bash
+   cast send --rpc-url "$BASE_RPC_URL" --private-key "$MINER_PRIVATE_KEY" \
+     "$CLAIM_TX_TO" "$CLAIM_TX_DATA"
+   ```
 
 
 **Bonus epochs:** Before claiming, check if an epoch is a bonus epoch:
@@ -670,21 +743,34 @@ On success: `{ "success": true, "transactionHash": "0x...", "status": "success",
 
    Response (200): `{ "calldata": "0x...", "transaction": { "to": "0x...", "chainId": 8453, "value": "0", "data": "0x..." } }`. Submit the `transaction` object via Bankr API or wallet.
 
-**Flow:** Call `/v1/bonus/status?epochs=42` to see if epoch 42 is a bonus epoch and if claims are open. If `isBonusEpoch && claimsOpen`, call `/v1/bonus/claim-calldata?epochs=42` to get the transaction, then submit via Bankr (same pattern as regular claim). If not a bonus epoch, use the regular `GET /v1/claim-calldata` flow above.
+**Flow:** Call `/v1/bonus/status?epochs=42` to see if epoch 42 is a bonus epoch and if claims are open. If `isBonusEpoch && claimsOpen`, call `/v1/bonus/claim-calldata?epochs=42` to get the transaction, then broadcast it (Bankr `POST /wallet/submit` or `cast send` — same pattern as regular claim). If not a bonus epoch, use the regular `GET /v1/claim-calldata` flow above.
 
 **Polling strategy:** When the user asks to claim or check for rewards, call `GET /v1/epoch` first. If `prevEpochId` exists and you mined in that epoch, try claiming it. You can poll every few hours (or at epoch boundaries) to catch epochs that are funded **and** finalized. If a claim reverts, the epoch may not be funded or not yet finalized — try again later.
 
-## Bankr Interaction Rules
+## Bankr Interaction Rules (Path A only)
 
-**Natural language** (via `POST /agent/prompt`) — ONLY for:
-- Buying BOTCOIN: `"swap $10 of ETH to 0xA601877977340862Ca67f816eb079958E5bd0BA3 on base"` (or enough to reach 5M+ BOTCOIN; verify against coordinator `GET /v1/token` if needed)
+These rules apply only when using Path A. Path B users sign and broadcast directly and can skip this section.
+
+**Endpoint route map (current):**
+| Purpose | Endpoint | Notes |
+|---------|----------|-------|
+| Wallet identity | `GET /agent/me` or `GET /wallet/me` | Either works; same payload. |
+| Sign EIP-191 message | **`POST /wallet/sign`** | `POST /agent/sign` is **retired (404)**. |
+| Raw transaction submit | **`POST /wallet/submit`** | `POST /agent/submit` is **retired (404)**. |
+| Natural-language prompt | `POST /agent/prompt` | Unchanged; `/wallet/prompt` does not exist. |
+| Poll async job | `GET /agent/job/{id}` | Unchanged; `/wallet/job/{id}` does not exist. |
+
+If your client still hits `/agent/submit` or `/agent/sign` and is getting `HTTP 404 Cannot POST /agent/...`, that's the migration — switch to the `/wallet/...` equivalents.
+
+**Natural language** (`POST /agent/prompt`) — ONLY for off-contract helpers:
+- Buying BOTCOIN: `"swap $10 of ETH to 0xA601877977340862Ca67f816eb079958E5bd0BA3 on base"` (verify token address against coordinator `GET /v1/token` if needed)
 - Checking balances: `"what are my balances on base?"`
 - Bridging ETH for gas: `"bridge $X of ETH to base"`
 
-**Raw transaction** (via `POST /agent/submit`) — for ALL contract calls:
+**Raw transaction** (`POST /wallet/submit`) — for ALL contract calls:
 - `submitReceipt(...)` — posting mining receipts (calldata from coordinator `/v1/submit`)
 - `claim(epochIds[])` — claiming rewards (calldata from coordinator `/v1/claim-calldata`)
-- `stake` / `unstake` / `withdraw` — staking (calldata from coordinator `/v1/stake-approve-calldata`, `/v1/stake-calldata`, `/v1/unstake-calldata`, `/v1/withdraw-calldata`; submit via Bankr)
+- `stake` / `unstake` / `withdraw` — staking (calldata from coordinator `/v1/stake-approve-calldata`, `/v1/stake-calldata`, `/v1/unstake-calldata`, `/v1/withdraw-calldata`)
 
 Never use natural language for contract interactions. The coordinator provides exact calldata.
 
