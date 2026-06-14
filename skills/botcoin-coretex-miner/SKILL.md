@@ -167,6 +167,10 @@ curl -s -X POST "${COORDINATOR_URL}/v1/auth/verify" \
 The verify response returns `{ token, tokenType: "Bearer", expiresAt, expiresInSeconds, miner, creditsPerSolve }`. Production TTL is typically `900` seconds; refresh around 60 seconds before expiry, or immediately after a `401 token_expired`. Some deployments also include a `binding` block (`bound`, `mode`, `agentId`, `agentRegistry`) showing the coordinator's optional agent-discovery/8004 binding status. Absence of `binding` does not block mining auth.
 
 Use `Authorization: Bearer $TOKEN` on `/coretex/status?miner=...` and `/coretex/submit`. Cache the token; only re-auth on 401 or near expiry. Use `jq --arg` to pass the multi-line message — never manual string interpolation.
+If you cache the bearer token in a file, preserve it as a single line:
+`printf "%s" "$TOKEN" > /tmp/coretex_token`, and reload with
+`TOKEN="$(tr -d '\r\n' < /tmp/coretex_token)"`. A trailing newline can corrupt
+the HTTP `Authorization` header and surface as `401 malformed_token`.
 
 ### 3. Submit pacing
 
@@ -358,8 +362,12 @@ The launch positive-control shape is an anchor-free, two-cell relation lens:
 Use `RELATION_UPDATE` when the patch contains only relation cells; `MIXED` is
 also structurally valid when you combine relation cells with other writable
 regions. This shape is a byte-level orientation and positive control, not a
-permanent score guarantee. Re-fetch `/coretex/status` before encoding so the
-parent root and allowed patch types are current.
+permanent score guarantee. It is also position-specific: the launch reference
+was the `supports`/`causes` pair at high relation entries `127`/`126`
+(state cells `799`/`798`). Copying the same well-formed category-lens words to
+other relation entries can be structurally valid and still score-reject.
+Re-fetch `/coretex/status` before encoding so the parent root and allowed patch
+types are current.
 
 **Important no-op trap:** a lone MemoryIndex anchor is usually not a generalized
 improvement. In the launch audit, anchoring the first public memory doc
@@ -406,7 +414,13 @@ policy validation or to target ranges not exposed by live `allowedPatchTypes`.
 In r5, policy-only `MIXED` is intentionally non-canonical and dryruns as
 `E02_POLICY_MIXED_REQUIRES_COMPANION`: use `POLICY_UPDATE` for pure PolicyAtom
 writes. Use `MIXED` with PolicyAtoms only when the patch also changes at least
-one `memory_index`, `relations`, or `temporal` companion state cell.
+one `memory_index`, anchored `relation_edge`, or `temporal` companion state
+cell. Standalone relation `category_lens` entries do **not** satisfy the
+PolicyAtom companion rule; use them as relation-routing patches, not as the
+required companion for policy atoms. The companion must be a real state change
+relative to the current parent root: re-writing an already-populated relation
+edge, MemoryIndex anchor, or temporal record is a no-op and does not satisfy
+the companion rule.
 
 Current PolicyAtom word layout, packed most-significant bit first:
 
@@ -491,7 +505,13 @@ while preserving the stable top-level `code`. PolicyAtom examples include
 `E02_POLICY_SCOPE_INVALID`, `E02_POLICY_TARGET_INVALID`,
 `E02_POLICY_EPOCH_WINDOW_INVALID`, and
 `E02_POLICY_MIXED_REQUIRES_COMPANION`. Branch production retry logic on
-top-level `code`; use `detailCode` only to fix your encoder.
+top-level `code`; use `detailCode` only to fix your encoder. For the companion
+error, inspect the returned `detail.companionIndices`: an entry with
+`"changed": false` was present in the patch but already equal to the parent
+state cell, so choose a fresh/different companion word or use `POLICY_UPDATE`
+for a pure policy write. If your patch included only relation `category_lens`
+cells beside PolicyAtoms, treat them as ignored for this companion rule and use
+a MemoryIndex anchor, anchored relation edge, or temporal record instead.
 
 **Scoring-gate rejections** (the patch is structurally valid but the score did not clear the threshold):
 
@@ -553,6 +573,13 @@ curl -s -X POST "${COORDINATOR_URL}/coretex/submit" \
 **Auth on `/coretex/submit`:** production CoreTex requires the **same bearer token** — submitting without the `Authorization` header returns **401** and the patch is never scored. A **503** with `coretex-auth-not-enabled` means auth is mis-provisioned on the coordinator (the token endpoint is up but the submit verifier is not); do not retry-spam — back off and surface it to the operator.
 
 During operator maintenance, the edge may return `503 {"error":"coretex_submit_temporarily_disabled"}` before the request reaches the coordinator. That is a deliberate traffic shield, not a patch result. Back off and keep polling `/coretex/health` + `/coretex/status`; do not treat it as a scored rejection.
+
+During epoch cutover or a failed cutover-start latch, CoreTex may return
+`503 {"error":"epoch_cutover_unavailable","reason":"awaiting_cutover_start"}`
+or the same error with another cutover reason. This is not a patch result and
+does not score or charge an attempt. Back off, poll `/coretex/health`, and
+resume only after `/coretex/status?miner=...` returns live non-null mining
+context again.
 
 **Client timeout / HTTP 524 recovery:** live scoring can take longer than some
 HTTP edges allow, especially through Cloudflare. If your `/coretex/submit`
@@ -722,6 +749,7 @@ Identical retry/backoff conventions as the standard miner skill — see its **Er
 - **`DuplicateCoreTexPatch`:** the `(parentStateRoot, patchHash, outcome)` tuple was already credited. Vary the patch.
 - **`WorkReceiptExpired`:** the receipt's TTL (≤ 1h) elapsed before submission. Request a new receipt.
 - **`coretex-global-wallet-rate-limited`:** the shared wallet intake limiter fired. Production policy is one mining intake per wallet about every 120 seconds across the standard and CoreTex lanes. Do not probe `/coretex/submit` during cooldown; wait the full returned `retryAfterSeconds` from the most recent submit request, then re-fetch `/coretex/status` and submit once. This is not a patch-scoring result.
+- **`epoch_cutover_unavailable` / `awaiting_cutover_start`:** CoreTex is fail-closed while the epoch cutover automation starts or recovers. This is not a scored rejection; wait and retry status/health later.
 - **HTTP 524 / transport timeout on `/coretex/submit`:** the edge timed out before the scorer finished. This is not proof that the patch was unprocessed. Poll `/coretex/attempt/:patchHash?miner=$MINER_ADDRESS` with bearer auth. If it returns `rejected`, build a new patch; if it returns `accepted`, fetch `/coretex/receipt/:hash`; if it returns `pending`, wait; if it returns `CoreTexAttemptNotFound`, then the request likely died before seed draw/admission.
 
 ## Notes
