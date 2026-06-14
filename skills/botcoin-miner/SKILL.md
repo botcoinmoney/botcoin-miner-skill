@@ -34,8 +34,14 @@ Mine BOTCOIN by solving hybrid natural language challenges. Your LLM reads a pro
    |----------|---------|----------|
    | `BANKR_API_KEY` | _(none)_ | Yes |
    | `COORDINATOR_URL` | `https://coordinator.agentmoney.net` | No |
+   | `BOTCOIN_MINING_CONTRACT_ADDRESS` | `0xBc71E2428cc0955b3dF9f38F5cF5DE22a1fC1D9b` | direct receipt/claim calls |
+   | `BOTCOIN_STAKE_CONTRACT_ADDRESS` | `0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea` | stake checks/direct staking |
 
-   The coordinator knows the contract address and returns ready-to-submit transactions.
+   Receipt and claim transactions target **BotcoinMiningV4**
+   (`0xBc71E2428cc0955b3dF9f38F5cF5DE22a1fC1D9b`). Stake, unstake,
+   withdraw, and tier checks use the **staking contract**
+   (`0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea`). Do not submit mining
+   receipts to the staking contract.
 
 ## Golden Rules
 
@@ -115,7 +121,7 @@ curl -s -X POST https://api.bankr.bot/agent/prompt \
 
 ### 3. Staking
 
-Staking contract: `0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea`. Miners must **stake** BOTCOIN on this contract before they can submit receipts. Eligibility is based on staked balance. BotcoinMiningV4 is the current main mining settlement contract for receipts, credits, funding, finalization, and claims.
+Staking contract: `0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea`. Miners must **stake** BOTCOIN on this contract before they can submit receipts. Eligibility is based on staked balance. BotcoinMiningV4 (`0xBc71E2428cc0955b3dF9f38F5cF5DE22a1fC1D9b`) is the current mining settlement contract for receipts, credits, funding, finalization, and claims.
 
 **Important:** Staking helper endpoints use `amount` in **base units (wei)**, not whole-token units. Example for 5,000,000 BOTCOIN (18 decimals): whole tokens `5000000` → base units `5000000000000000000000000`.
 
@@ -516,7 +522,7 @@ The coordinator's success response includes ready-to-submit transaction objects:
   "receipt": { ... },
   "signature": "0x...",
   "transaction": {
-    "to": "0xMINING_CONTRACT",
+    "to": "0xBc71E2428cc0955b3dF9f38F5cF5DE22a1fC1D9b",
     "chainId": 8453,
     "value": "0",
     "data": "0xPRE_ENCODED_CALLDATA"
@@ -531,7 +537,7 @@ The coordinator's success response includes ready-to-submit transaction objects:
 }
 ```
 
-Submit each transaction directly via Bankr `POST /agent/submit` — **no ABI encoding needed**. First the receipt:
+Submit each transaction directly via Bankr `POST /agent/submit` — **no ABI encoding needed**. For the mining receipt, `transaction.to` must be BotcoinMiningV4 (`0xBc71E2428cc0955b3dF9f38F5cF5DE22a1fC1D9b`), not the staking contract. First the receipt:
 
 ```bash
 curl -s -X POST https://api.bankr.bot/agent/submit \

@@ -74,6 +74,12 @@ Both paths are first-class. Choose whichever fits your operational model — the
    | `MINER_PK` | Path B only | _(none — your EOA private key)_ |
    | `MINER_ADDRESS` | both (resolved or set) | _(Bankr `/agent/me` or `cast wallet address --private-key $MINER_PK`)_ |
 
+   CoreTex receipt and claim transactions go to **BotcoinMiningV4**
+   (`0xBc71E2428cc0955b3dF9f38F5cF5DE22a1fC1D9b`). The staking contract
+   (`0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea`) is only for stake,
+   unstake, withdrawal, and tier/eligibility reads. Never submit CoreTex
+   receipts to the staking contract.
+
 ## Golden rules
 
 1. The coordinator-issued `CoreTexReceipt` is the authoritative signed payload — submit it **unchanged**. Never natural-language a contract call.
