@@ -1,6 +1,6 @@
 ---
 name: botcoin-miner
-description: "Mine BOTCOIN by solving AI challenges on Base with stake-gated V3 mining."
+description: "Mine BOTCOIN by solving AI challenges on Base with V4 mining settlement and stake-gated eligibility."
 metadata: { "openclaw": { "emoji": "⛏", "requires": { "env": ["BANKR_API_KEY"], "skills": ["bankr"] } } }
 ---
 
@@ -66,7 +66,7 @@ Do NOT proceed until you have successfully resolved the wallet address.
 
 ### 2. Check Balance and Fund Wallet
 
-The miner needs at least **5,000,000 BOTCOIN** to mine. Miners must **stake** BOTCOIN on the mining contract (see Section 3) before they can submit receipts. Credits per solve are tiered by staked balance at submit time:
+The miner needs at least **5,000,000 BOTCOIN** to mine. Miners must **stake** BOTCOIN on the staking contract (see Section 3) before they can submit receipts. Credits per solve are tiered by staked balance at submit time:
 
 | Staked balance | Credits per solve |
 |----------------------------|-------------------|
@@ -115,7 +115,7 @@ curl -s -X POST https://api.bankr.bot/agent/prompt \
 
 ### 3. Staking
 
-Mining contract: `0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea`. Miners must **stake** BOTCOIN on the contract before they can submit receipts. Eligibility is based on staked balance.
+Staking contract: `0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea`. Miners must **stake** BOTCOIN on this contract before they can submit receipts. Eligibility is based on staked balance. BotcoinMiningV4 is the current main mining settlement contract for receipts, credits, funding, finalization, and claims.
 
 **Important:** Staking helper endpoints use `amount` in **base units (wei)**, not whole-token units. Example for 5,000,000 BOTCOIN (18 decimals): whole tokens `5000000` → base units `5000000000000000000000000`.
 
@@ -592,7 +592,7 @@ If mining as an operator through a pool contract, set `miner` to the pool contra
 
 ### 6. Claim Rewards
 
-**When to claim:** Each epoch lasts 24 hours (mainnet) or 30 minutes (testnet). You can only claim rewards for epochs that have **ended**, been **funded** by the operator (via `fundEpoch`), and — on **Mining V3** — **`finalizeEpoch`** has been called for that epoch so claims are no longer blocked. Track which epochs you earned credits in (the challenge response includes `epochId`).
+**When to claim:** Each epoch lasts 24 hours (mainnet) or 30 minutes (testnet). You can only claim rewards for epochs that have **ended**, been **funded** by the operator (via `fundEpoch`), and **`finalizeEpoch`** has been called for that epoch so claims are no longer blocked. Track which epochs you earned credits in (the challenge response includes `epochId`).
 
 **Credits check (per miner, per epoch):**
 
@@ -617,7 +617,7 @@ Response includes:
 **Claimable epochs** are those where:
 1. `epochId < currentEpoch` (epoch has ended)
 2. The operator has called `fundEpoch` (rewards deposited; there may have been multiple transfers)
-3. The operator has called `finalizeEpoch` for that epoch (Mining V3 — required before `claim`)
+3. The operator has called `finalizeEpoch` for that epoch (required before `claim`)
 4. You earned credits in that epoch (you mined and posted receipts)
 5. You have not already claimed
 
@@ -711,7 +711,7 @@ Use one retry helper for all coordinator calls.
 
 ### Claim errors (transaction reverted)
 - **EpochNotFunded**: The operator has not yet deposited rewards for that epoch (no `fundEpoch` yet). Poll `GET /v1/epoch` and try again later.
-- **EpochNotFinalized** (Mining V3): Rewards were deposited but the operator has not yet called `finalizeEpoch` for that epoch. Wait and retry after finalization.
+- **EpochNotFinalized**: Rewards were deposited but the operator has not yet called `finalizeEpoch` for that epoch. Wait and retry after finalization.
 - **NoCredits**: You have no credits in that epoch (you didn't mine, or mined in a different epoch).
 - **AlreadyClaimed**: You already claimed that epoch. Skip it.
 
