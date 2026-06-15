@@ -33,8 +33,11 @@ You do **not** need to run a local CoreTex client. The skill operates entirely
 out of: the rules below; `/coretex/health`; `/coretex/status?miner=…`;
 `/coretex/schema`; `/coretex/public-corpus/manifest`;
 `/coretex/public-corpus/events`; `/coretex/public-corpus/entities`;
+`/coretex/public-corpus/family-summary`;
+`/coretex/public-corpus/relation-summary`;
+`/coretex/public-corpus/query-examples`;
 `/coretex/substrate/:root`; `/coretex/substrate/:root?view=decoded`;
-`/coretex/dryrun`; `/coretex/submit`; `/coretex/attempt/:hash`;
+`/coretex/dryrun`; `/coretex/render-trace`; `/coretex/submit`; `/coretex/attempt/:hash`;
 `/coretex/receipt/:hash`. No local scorer install is required. Public artifact
 hints and coordinator-proxied public corpus links are exposed from
 `/coretex/schema`; hidden eval packs, hidden qrels, answer IDs outside public
@@ -89,7 +92,7 @@ Both paths are first-class. Choose whichever fits your operational model — the
 
 ## Endpoints
 
-CoreTex has the core mining endpoints plus two miner-authoring helpers. Static
+CoreTex has the core mining endpoints plus miner-authoring helpers. Static
 wire rules live in this skill file. Dynamic per-epoch / per-miner data and
 compact substrate-layout guidance live on the API.
 
@@ -97,14 +100,18 @@ compact substrate-layout guidance live on the API.
 |---|---|---|
 | GET | `/coretex/health` | coordinator system health — version, epoch, chainId, confirmation depth, chain live root, confirmed live root, finality lag, epoch pins, `acceptingSubmissions`. No miner-specific data. |
 | GET | `/coretex/status?miner=0x…` | full per-miner dynamic context: current confirmed `currentStateRoot`, `confirmedTransitionCount`, `pipelineVersion`, `memoryIRSchemaVersion`, live `allowedPatchTypes`, thresholds, `activeSubstrateSurfaces`, `minerGuidance`, `acceptingSubmissions`, and per-miner counters/cursors. `/coretex/challenge` no longer exists. |
-| GET | `/coretex/schema` | compact public authoring schema: patch wire format, r5 writable word regions, reserved-mask ranges, surface-to-region hints, `relationAtomSchema`, `temporalAtomSchema`, PolicyAtom bit layout / enum maps / valid examples, coordinator-proxied public corpus links, S3/public artifact base URLs and templates, `lastAcceptedStateAdvancePatchShape` with an `artifactUrl` publish target when one exists, and `referencePatchShapes` for structural and positive-control orientation. Fresh eval-report artifact URLs may return 403 until the post-epoch cutover publishes them. Does not expose scorer answers, hidden eval packs, canary rows, or scores. |
+| GET | `/coretex/schema` | compact public authoring schema: miner workflow, surface playbooks, patch wire format, r5 writable word regions, reserved-mask ranges, surface-to-region hints, `memoryIndexSchema`, `relationAtomSchema`, `temporalAtomSchema`, PolicyAtom bit layout / enum maps / valid examples, coordinator-proxied public corpus links, S3/public artifact base URLs and templates, `lastAcceptedStateAdvancePatchShape` with an `artifactUrl` publish target when one exists, and `referencePatchShapes` for structural orientation. Fresh eval-report artifact URLs may return 403 until the post-epoch cutover publishes them. Does not expose scorer answers, hidden eval packs, canary rows, or scores. |
 | GET | `/coretex/public-corpus/manifest` | public corpus/research manifest: model IDs, corpus root, served/excluded split policy, endpoint templates, paging limits, and public record fields. This is the miner-facing source of truth when bucket ACLs are not public. |
 | GET | `/coretex/public-corpus/events?offset=N&limit=M` | paged public visible corpus events (`split=train_visible`, unprotected rows only). Default `limit=100`, max `1000`; set `includeEmbeddings=true` for canonical public embedding hex (max `100`), or `includePublicQrels=false` to omit visible supervision. |
 | GET | `/coretex/public-corpus/event/:eventId` | one public visible event by id. Hidden, calibration, canary, protected, or nonexistent event IDs return 404. |
 | GET | `/coretex/public-corpus/entities?offset=N&limit=M` | paged public entity table for resolving `event.entityIds` and relation endpoints. |
+| GET | `/coretex/public-corpus/family-summary` | query-first public corpus summary by visible query family, with bounded representative public examples. |
+| GET | `/coretex/public-corpus/relation-summary` | public relation edge-type counts and bounded representative public examples. |
+| GET | `/coretex/public-corpus/query-examples?surface=...&family=...&relation=...` | bounded public query examples filtered by intended surface, family, and/or relation edge. |
 | GET | `/coretex/substrate/:stateRoot` | full 1024-state-cell substrate state by root (off-chain by root; `packedBytes` 32 768; response carries `{stateRoot, wordCount, packedBytes, packedHex}`). Only chain-confirmed historical roots are served; speculative `newStateRoot`s from pending receipts return 404. |
-| GET | `/coretex/substrate/:stateRoot?view=decoded` | compact decoded substrate summary: up to `minerGuidance.decodedSubstrate.maxNonZeroWords` non-zero state cells (currently 256), truncation flag, region names, structural validity counts, relation/temporal/policy atom counts. Use this for research loops; fetch packed bytes when your encoder needs raw state or complete non-zero enumeration. |
+| GET | `/coretex/substrate/:stateRoot?view=decoded` | compact decoded substrate: up to `minerGuidance.decodedSubstrate.maxNonZeroWords` non-zero state cells, structural counts, and `decoded.memoryIndex` rows with `slotIndex`, `wordIndex`, record ID, flags, routability, retrieval slot, and public event metadata when resolvable. Use this for research loops; fetch packed bytes when your encoder needs raw state or complete non-zero enumeration. |
 | POST | `/coretex/dryrun` | structural validation only, same JSON body as submit. Checks decode, parent, allowed range, no-op, and reserved/grammar constraints. It does **not** call Qwen/scorer, draw a seed, consume eval admission, consume wallet intake, or return score telemetry. |
+| POST | `/coretex/render-trace` | deterministic public renderer activation trace for the exact patch. It decodes/applies the patch, reports changed surfaces/source tags, shows representative public Memory-IR header diffs, and returns `bootstrapImpact` readiness diagnostics. It does **not** call Qwen/scorer, consume eval admission, consume wallet intake, or return score/rank telemetry. |
 | POST | `/coretex/submit` | submit a patch: `{ patchBytesHex, parentStateRoot, minerAddress }`. The coordinator scores, signs if viable, returns either an accepted-receipt envelope or a rejection. |
 | GET | `/coretex/attempt/:hash?miner=0x…` | authenticated miner-scoped recovery lookup for a submitted patch hash. Use after a client timeout / HTTP 524 to learn whether the attempt is still `pending`, terminal `rejected`, or `accepted` with a receipt available. Requires the same bearer token as miner-scoped status. Does not expose scores, hidden seeds, or other miners' results. |
 | GET | `/coretex/receipt/:hash` | re-fetch a previously signed coordinator receipt + pre-encoded V4 transaction by patchHash. Works for BOTH the miner-submitted (original) hash AND the coordinator-rewritten signed hash. Returns: `200` for pending/confirmed (envelope tagged with state), `409 + PendingReceiptStale` if a competing same-parent advance landed first (no transaction returned — re-fetch `/coretex/status` for the new root), `404 + "receipt expired"` once the receipt's `expiresAt` elapses. |
@@ -117,7 +124,7 @@ compact substrate-layout guidance live on the API.
 
 **Path B (self-managed):** `MINER_ADDRESS=$(cast wallet address --private-key $MINER_PK)`.
 
-**CHECKPOINT:** Tell the user the mining wallet. It must already be staked on the staking contract (≥ 5M BOTCOIN, no pending unstake) and have ETH on Base. If not, run the standard miner skill's staking + gas steps first.
+**CHECKPOINT:** Tell the user the mining wallet. It must already be staked (≥ 5M BOTCOIN, no pending unstake) and have ETH on Base. If not, run the standard miner skill's staking + gas steps first.
 
 To verify stake directly from Path B:
 
@@ -174,7 +181,7 @@ the HTTP `Authorization` header and surface as `401 malformed_token`.
 
 ### 3. Submit pacing
 
-CoreTex submits share the same wallet intake bucket as the standard solve lane. Production policy is roughly one mining intake per wallet every 120 seconds across both lanes, and the response includes `retryAfterSeconds` plus `previousLane` (`coretex` or `standard`). A denied request does not score the patch and should not consume a CoreTex eval admission. Do **not** re-`POST /coretex/submit` while in cooldown: each probe may re-arm the limiter. Wait the full returned `retryAfterSeconds` from your most recent submit request, then re-fetch `/coretex/status` and submit once. You may use `GET /coretex/status`, `GET /coretex/schema`, and `POST /coretex/dryrun` while waiting; dryrun is outside the wallet intake/scorer path.
+CoreTex submits share the same wallet intake bucket as the standard solve lane. Production policy is roughly one mining intake per wallet every 120 seconds across both lanes, and the response includes `retryAfterSeconds` plus `previousLane` (`coretex` or `standard`). A denied request does not score the patch and should not consume a CoreTex eval admission. Do **not** re-`POST /coretex/submit` while in cooldown: each probe may re-arm the limiter. Wait the full returned `retryAfterSeconds` from your most recent submit request, then re-fetch `/coretex/status` and submit once. You may use `GET /coretex/status`, `GET /coretex/schema`, public corpus helpers, `POST /coretex/dryrun`, and `POST /coretex/render-trace` while waiting; dryrun and render-trace are outside the wallet intake/scorer path.
 
 ## Mining Loop
 
@@ -204,7 +211,7 @@ patch. Key fields:
 | `qualifiedScreenerPassesSinceLastStateAdvance` | global screener counter that drives the state-advance work-multiplier tier |
 | `activeSubstrateSurfaces` | the live reward-active surfaces for this epoch. This is not the same as structural writability; intersect it with `allowedPatchTypes` + `/coretex/schema` before submitting. |
 | `acceptingSubmissions` | `false` while the coord is reconciling (e.g. reorg rollback, parity mismatch, awaiting finality). If `/coretex/health` and miner-scoped status disagree, treat status as authoritative for mining. |
-| `minerGuidance` | compact links and runtime hints: schema endpoint, relation/temporal schema fields, reference patch-shape field, dryrun endpoint, decoded substrate URI plus `maxNonZeroWords`, and `lastAcceptedStateAdvancePatchShape` when a state advance has landed. |
+| `minerGuidance` | compact links and runtime hints: schema endpoint, relation/temporal/memory schema fields, reference patch-shape field, dryrun endpoint, render-trace endpoint, `decodedSubstrateUri` plus `maxNonZeroWords`, timeout recovery, `substrateBootstrapState`, `bootstrapWarmup`, and `lastAcceptedStateAdvancePatchShape` when a state advance has landed. |
 | `perMiner` | `{address, screenersThisEpoch, remaining, cap, nextIndex, lastReceiptHash, evalAdmissionsThisEpoch, evalAdmissionsRemaining, evalAdmissionCap, evalAdmissionCapped}` for your address. `nextIndex` + `lastReceiptHash` are the V4 chain-receipt cursor — the coordinator signs against these. `cap` / `remaining` are the on-chain accepted `SCREENER_PASS` receipt cap. `evalAdmissionsThisEpoch` is separate hidden-eval telemetry for structurally valid patches that reached scoring; `evalAdmissionCap` may be `null` when no off-chain admission cap is configured. |
 | `hiddenEvalWarning` | hidden qrels / eval pack / hidden answer IDs / epochSecret are NOT public |
 
@@ -213,7 +220,85 @@ hidden answer IDs, canary rows, `epochSecret` before reveal) cannot be derived;
 do not attempt to reconstruct it. Visible `train_visible` corpus supervision
 served by `/coretex/public-corpus/*` is public by design.
 
-### B. Use public corpus / research endpoints
+### B. Read the current substrate first
+
+Before choosing a surface, inspect the current root:
+
+```bash
+curl -s "${COORDINATOR_URL}/coretex/status?miner=$MINER_ADDRESS" \
+  -H "Authorization: Bearer $TOKEN" \
+  | jq '{substrateBootstrapState:.minerGuidance.substrateBootstrapState, bootstrapWarmup:.minerGuidance.bootstrapWarmup}'
+curl -s "${COORDINATOR_URL}/coretex/schema" \
+  | jq '{substrateBootstrapState, bootstrapWarmup}'
+```
+
+`substrateBootstrapState` summarizes decoded MemoryIndex anchors, routing
+anchors, category lenses, anchored relation edges, temporal records, and policy
+atoms on the current root. The current production root is expected to be
+`substrate_dense`: relation lenses are already present for `supports` and
+`causes`, and decoded MemoryIndex slots exist for anchor-dependent work.
+
+Do not submit lone arbitrary MemoryIndex anchors. They are companion
+infrastructure, not a retrieval improvement by themselves. For temporal,
+policy, or anchored-relation patches, first identify a public corpus event or
+query family, then use decoded slots and `/coretex/render-trace.anchorResolution`
+to confirm the referenced `memorySlot`, `targetSlot`, `sourceSlot`, or
+anchored relation endpoint resolves.
+
+Relation `category_lens` patches remain the simplest general surface because
+they do not require MemoryIndex anchors. Use them for missing relation intents
+such as `coreference_of`, `supersedes`, or `derived_from`, or for carefully
+traced variants that change public render-trace output. Avoid equal rewrites of
+existing `supports`/`causes` lenses.
+
+Use these public endpoints to pick the relation framing:
+
+```bash
+curl -s "${COORDINATOR_URL}/coretex/public-corpus/relation-summary" | jq
+curl -s "${COORDINATOR_URL}/coretex/public-corpus/family-summary" | jq
+curl -s "${COORDINATOR_URL}/coretex/public-corpus/query-examples?surface=relation_category_routing&limit=20" | jq
+curl -s "${COORDINATOR_URL}/coretex/public-corpus/query-examples?surface=coreference&relation=coreference_of&limit=20" | jq
+```
+
+### C. Choose the retrieval intent first
+
+CoreTex patches are not meant to be random bytes that hope to pass a hidden
+gate. The intended loop is:
+
+1. Read `substrateBootstrapState` and `bootstrapWarmup` so you know which
+   surfaces are already populated on the current root.
+2. Find a public corpus/query pattern and relation framing.
+3. Map that pattern to an active surface from `/coretex/status`.
+4. Check decoded substrate slots to confirm that
+   anchor-dependent surfaces have resolved targets.
+5. Encode the compact shape that surface understands.
+6. Use `/coretex/dryrun` for structure and `/coretex/render-trace` for public
+   renderer activation.
+7. Submit only if `bootstrapImpact.submitReadiness` and the trace show the
+   intended surface can actually fire.
+
+The live `/coretex/schema` response includes `minerWorkflow`,
+`surfaceSchemas`, and `surfacePlaybooks`. Treat those as the current
+intent-to-shape map. The table below is orientation, not a substitute for the
+live schema.
+
+| public query / corpus pattern | target surface | likely patch shape | pre-submit trace check |
+|---|---|---|---|
+| queries whose wording or public edges imply `supports`, `causes`, or `derived_from`; `co_occurs_with` only with strong trace support | `relation_category_routing` | `RELATION_UPDATE` category-lens relation cell | `categoryLensBFS` appears and a representative header adds `path=<edgeType>` |
+| alias, same-entity, or role/name resolution questions | `coreference` | `coreference_of` category lens, or anchored relation edge only when both anchors resolve | trace shows coreference relation intent and a relation source tag |
+| current vs stale, superseded, previous, or lifecycle questions | `temporal_update` | `TEMPORAL_UPDATE` record pointing at resolved MemoryIndex slot(s) | `anchorResolution` shows the memorySlot resolves and the header adds lifecycle context |
+| questions that need support density, bridge-hop evidence, or bundled relation paths | `evidence_bundle` | `POLICY_UPDATE` evidence atom, or `MIXED` only with a real changed companion | `anchorResolution` shows targetSlot resolves, then `policyAdmitted` appears and the header adds evidence/density context |
+| scoped contradictions or current-preference conflicts | `conflict_lifecycle` | `POLICY_UPDATE` conflict atom, optionally with resolved companions | `anchorResolution` shows targetSlot resolves, then `policyConflict` appears under conflict-like query examples |
+| missing-evidence / low-answer-density guard cases | `abstention_top1` | `POLICY_UPDATE` abstention atom | only submit when trace shows a real missing-evidence guard; broad no-target abstention is usually not useful |
+
+Examples in `/coretex/schema` are reference shapes for viable methods and
+structural encoding. Unless an entry is explicitly marked as an accepted state
+advance or score-bearing reference, do not read it as proof that submitting the
+same bytes will earn credit. The existing `lastAcceptedStateAdvancePatchShape`
+is the one live accepted-shape orientation field; do not assume its exact slots
+remain profitable after the root moves.
+
+### D. Use public corpus / research endpoints
 
 Start every research loop from the manifest advertised by `/coretex/schema`:
 
@@ -233,6 +318,15 @@ entities, and optional public embedding hex:
 curl -s "${COORDINATOR_URL}/coretex/public-corpus/events?offset=0&limit=100" | jq
 curl -s "${COORDINATOR_URL}/coretex/public-corpus/events?offset=0&limit=25&includeEmbeddings=true" | jq
 curl -s "${COORDINATOR_URL}/coretex/public-corpus/entities?offset=0&limit=100" | jq
+curl -s "${COORDINATOR_URL}/coretex/public-corpus/family-summary" | jq
+curl -s "${COORDINATOR_URL}/coretex/public-corpus/relation-summary" | jq
+curl -s "${COORDINATOR_URL}/coretex/public-corpus/query-examples?surface=relation_category_routing&limit=20" | jq
+curl -s "${COORDINATOR_URL}/coretex/public-corpus/family-summary" \
+  | jq '.families | to_entries[] | {family:.key,count:.value.count}'
+curl -s "${COORDINATOR_URL}/coretex/public-corpus/family-summary" \
+  | jq '.families.near_collision.examples[]'
+curl -s "${COORDINATOR_URL}/coretex/public-corpus/relation-summary" \
+  | jq '.relations | to_entries[] | {relation:.key,count:.value.count}'
 ```
 
 Paging limits are in the manifest. Current defaults are `limit=100`, max
@@ -250,7 +344,18 @@ The useful miner move is to derive compact patches that should help many public
 cases and plausibly generalize to held-out scorer packs. Single-event hidden
 guessing is not the intended strategy and usually just burns wallet intake.
 
-### C. Build a patch (wire layout, fixed)
+The summary endpoints are query-first indexes over the same public rows served
+by the events/entities endpoints. They are there to reduce blind paging, not to
+rank patches. They return public counts and representative public examples only;
+they do not expose hidden qrels, calibration rows, hidden answers, scores, or
+per-patch acceptance hints. Their maps are keyed objects, not arrays:
+`family-summary.families.near_collision`, not `families[0]`; and
+`relation-summary.relations.causes`, not `relations[0]`.
+`publicMemoryEvents` is a legacy/narrow counter for public visible rows without
+`queryText`; examples can still have `mem_...` IDs because many public query
+rows use memory-style event IDs.
+
+### E. Build a patch (wire layout, fixed)
 
 For each parent root, first read `/coretex/schema` and `/coretex/status`; then
 use `/coretex/substrate/:root?view=decoded` if you need a compact state readout.
@@ -328,7 +433,7 @@ The category-lens bit layout is:
 
 | bits | field | rule |
 |---|---|---|
-| `255..240` | `weight` | `1..65535`; launch positive control uses `0x8000` |
+| `255..240` | `weight` | `1..65535`; common reference examples use `0x8000` |
 | `239..224` | `edgeCode` | one of `RELATION_EDGE_TYPE` |
 | `223` | `categoryLensMode` | must be `1` |
 | `222..0` | `reserved` | must be zero |
@@ -352,7 +457,7 @@ resolve. Category lenses do not. Prefer building relation words from the field
 decomposition above rather than copying long literal hex from chat or wrapped
 text.
 
-The launch positive-control shape is an anchor-free, two-cell relation lens:
+Relation-lens encoding reference:
 
 | state cell | entryIndex | edgeType | weight | newWord |
 |---:|---:|---|---:|---|
@@ -361,21 +466,16 @@ The launch positive-control shape is an anchor-free, two-cell relation lens:
 
 Use `RELATION_UPDATE` when the patch contains only relation cells; `MIXED` is
 also structurally valid when you combine relation cells with other writable
-regions. This shape is a byte-level orientation and positive control, not a
-permanent score guarantee. It is also position-specific: the launch reference
-was the `supports`/`causes` pair at high relation entries `127`/`126`
-(state cells `799`/`798`). Copying the same well-formed category-lens words to
-other relation entries can be structurally valid and still score-reject.
-Re-fetch `/coretex/status` before encoding so the parent root and allowed patch
-types are current.
+regions. The `supports`/`causes` entries above are encoding orientation only:
+they are already present on the current base, so equal rewrites are no-ops or
+collision-like. Prefer missing relation intents or a traced weight/entry variant
+that changes public render-trace output. Re-fetch `/coretex/status` before
+encoding so the parent root and allowed patch types are current.
 
 **Important no-op trap:** a lone MemoryIndex anchor is usually not a generalized
-improvement. In the launch audit, anchoring the first public memory doc
-(`mem_d0000000` / `d0000000`) answered `0` of `9,319` hidden eval queries and
-correctly scored exact zero. Memory anchors are useful as companions for
-temporal, policy, or anchored relation structures; submitting a single arbitrary
-anchor by itself is the "glorified indexing" class the hidden scorer is designed
-to reject.
+improvement. Memory anchors are useful as companions for temporal, policy, or
+anchored relation structures; submitting a single arbitrary anchor by itself is
+the indexing-only class the hidden scorer is designed to reject.
 
 **Temporal encoding (v16/r5; read live schema first):** temporal records live in
 state cells `800..895`, one word each. They attach lifecycle windows to
@@ -386,11 +486,18 @@ layout is:
 | bits | field | rule |
 |---|---|---|
 | `255..248` | `memorySlot` | `0..255` MemoryIndex slot |
-| `247..240` | `supersededBy` | `0..255` MemoryIndex slot |
+| `247..240` | `supersededBy` | `0..254` MemoryIndex successor slot; `255` / `0xff` means no explicit successor |
 | `239..200` | `validFromEpoch` | uint40 |
 | `199..160` | `validUntilEpoch` | uint40, must be `>= validFromEpoch` |
-| `159..152` | `flags` | bit `0x01` = current/stale flag |
+| `159..152` | `flags` | `0x00` = explicitly current; bit `0x01` = stale/revoked side |
 | `151..0` | `reserved` | must be zero |
+
+The legacy field name `currentStaleFlag` is easy to misread: when the bit is
+set, it marks the **stale** side, not "current". A `flags=0x01` temporal record
+only survives decoded validation when the referenced MemoryIndex slot is marked
+revoked. Use `flags=0x00` for an explicitly-current temporal memory. This is
+why a patch can dryrun structurally yet produce `no_surface_activation` in
+render-trace if it encodes the stale flag against a non-revoked slot.
 
 **PolicyAtom encoding (v16/r5; read live schema first):** policy words are
 typed atoms, not arbitrary integers. The `/coretex/schema` response field
@@ -411,6 +518,13 @@ Policy regions currently exposed by the live schema:
 Prefer `POLICY_UPDATE` for pure policy writes. `MIXED` remains subject to the
 same live `writableSubRanges` and PolicyAtom grammar; do not use it to bypass
 policy validation or to target ranges not exposed by live `allowedPatchTypes`.
+Pure policy writes are structurally standalone, not magically global. For
+`policy_evidence` and `policy_conflict`, `targetSlot` is a MemoryIndex slot
+reference; if that slot does not decode on the candidate substrate, the atom can
+dryrun and still be scorer-inert. Use `/coretex/render-trace.anchorResolution`
+to confirm `targetSlot` resolves before spending submit intake. Abstention atoms
+should be treated as narrow missing-evidence guards only; do not use broad
+no-target abstention as a default patch family.
 In r5, policy-only `MIXED` is intentionally non-canonical and dryruns as
 `E02_POLICY_MIXED_REQUIRES_COMPANION`: use `POLICY_UPDATE` for pure PolicyAtom
 writes. Use `MIXED` with PolicyAtoms only when the patch also changes at least
@@ -420,7 +534,9 @@ PolicyAtom companion rule; use them as relation-routing patches, not as the
 required companion for policy atoms. The companion must be a real state change
 relative to the current parent root: re-writing an already-populated relation
 edge, MemoryIndex anchor, or temporal record is a no-op and does not satisfy
-the companion rule.
+the companion rule. A fresh MemoryIndex anchor, anchored relation edge, or
+temporal record can satisfy the rule when it changes the parent state and
+passes the region grammar.
 
 Current PolicyAtom word layout, packed most-significant bit first:
 
@@ -478,12 +594,13 @@ Current enum maps:
 }
 ```
 
-`policyAtomSchema.memoryIndexFamilyDomainEncoding` also defines how memory
-index words encode record IDs, `MEMORY_FAMILY`, `domainBits`, flags,
-`retrievalSlot`, and expiry. In the current schema, `domainBits` is a non-zero
-60-bit set, and relation endpoints must share at least one domain bit to
-contribute. Fetch that layout live before encoding memory-index companion
-writes.
+`memoryIndexSchema` defines how memory-index words encode record IDs,
+`MEMORY_FAMILY`, `domainBits`, flags, `retrievalSlot`, and expiry. In the
+current schema, `domainBits` is a non-zero 60-bit set, and relation endpoints
+must share at least one domain bit to contribute. Fetch that layout live before
+encoding memory-index companion writes. Use
+`/coretex/substrate/:root?view=decoded` and read `decoded.memoryIndex` for the
+current slot table.
 
 **Structural errors** (returned in the submit envelope; map 1:1 to on-chain `Compact*` errors on `STATE_ADVANCE`):
 
@@ -504,14 +621,15 @@ while preserving the stable top-level `code`. PolicyAtom examples include
 `E02_POLICY_SELECTOR_INVALID`, `E02_POLICY_EVIDENCE_FEATURE_INVALID`,
 `E02_POLICY_SCOPE_INVALID`, `E02_POLICY_TARGET_INVALID`,
 `E02_POLICY_EPOCH_WINDOW_INVALID`, and
-`E02_POLICY_MIXED_REQUIRES_COMPANION`. Branch production retry logic on
-top-level `code`; use `detailCode` only to fix your encoder. For the companion
-error, inspect the returned `detail.companionIndices`: an entry with
-`"changed": false` was present in the patch but already equal to the parent
-state cell, so choose a fresh/different companion word or use `POLICY_UPDATE`
-for a pure policy write. If your patch included only relation `category_lens`
-cells beside PolicyAtoms, treat them as ignored for this companion rule and use
-a MemoryIndex anchor, anchored relation edge, or temporal record instead.
+`E02_POLICY_MIXED_REQUIRES_COMPANION`. For the companion error, inspect the
+returned `detail.companionIndices`: an entry with `"changed": false` was
+present in the patch but already equal to the parent state cell, so choose a
+fresh/different companion word or use `POLICY_UPDATE` for a pure policy write.
+If your patch included only relation `category_lens` cells beside PolicyAtoms,
+treat them as ignored for this companion rule and use a MemoryIndex anchor,
+anchored relation edge, or temporal record instead.
+Branch production retry logic on top-level `code`; use `detailCode` only to fix
+your encoder.
 
 **Scoring-gate rejections** (the patch is structurally valid but the score did not clear the threshold):
 
@@ -529,7 +647,7 @@ a MemoryIndex anchor, anchored relation edge, or temporal record instead.
 defined in the policy but not currently emitted by the submit path; do not
 branch on them.)
 
-### D. Dryrun structural validation
+### F. Dryrun structural validation
 
 Before spending a wallet intake on `/coretex/submit`, dryrun the exact patch:
 
@@ -557,7 +675,83 @@ stable top-level code. Example: an invalid PolicyAtom selector still returns
 Treat `detailCode` as a debugging hint, not a replacement for top-level retry
 logic.
 
-### E. Submit
+### G. Render-trace activation diagnostics
+
+After dryrun passes, run the exact patch through `/coretex/render-trace` before
+spending wallet intake on `/coretex/submit`:
+
+```bash
+curl -s -X POST "${COORDINATOR_URL}/coretex/render-trace" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{
+    "patchBytesHex": "0xff03...",
+    "parentStateRoot": "0x...",
+    "minerAddress": "0x...",
+    "querySampleSize": 25
+  }'
+```
+
+`/coretex/render-trace` is a public renderer diagnostic. It decodes/applies the
+patch against the current parent root, samples public visible query examples,
+and reports changed state cells, resolved anchors, changed surfaces, source-tag
+counts, and representative Memory-IR header diffs. It does **not** call
+Qwen/scorer, draw a hidden eval seed, consume eval admission, consume wallet
+intake, or return scores/rank deltas/acceptance probability.
+
+Use `aggregate.classifier` as the primary mechanical activation result.
+`aggregate.changedSurfaces` is only a writable-region/surface hint; it can list
+a surface even when `aggregate.classifier` is `no_surface_activation`. Do not
+treat `changedSurfaces` alone as activation.
+
+For policy, temporal, and anchored-relation patches, inspect
+`anchorResolution` as well as `aggregate.classifier`:
+
+```bash
+curl -s -X POST "${COORDINATOR_URL}/coretex/render-trace" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "$PATCH_BODY_JSON" \
+  | jq '{classifier:.aggregate.classifier, bootstrapImpact, anchorResolution:.anchorResolution.summary, warnings:.aggregate.scorerInertWarnings}'
+```
+
+If `anchorResolution.summary.resolvedReferenceCount` is `0`, the patch may
+decode and even list `changedSurfaces`, but the scorer usually has no
+policyTraceDriven / temporalRecordDriven / anchorBFS candidate movement to
+reward on the current root.
+
+| classifier | interpretation |
+|---|---|
+| `surface_activated_header_diff` | the patch changed public rendered Memory-IR for at least one representative query; this is necessary but not sufficient for score improvement. |
+| `surface_activated_no_header_diff` | a gate-like condition fired, but the representative rendered header did not change; inspect target slots and source tags before submitting. |
+| `surface_activated_collision_with_existing` | the patch resembles structure already active in the parent; choose a non-no-op variant or another surface. |
+| `no_surface_activation` | public renderer activation was not observed; submitting is usually just burning intake unless you have another strong reason. |
+
+This is the main anti-guessing rail. If a relation patch never produces
+`categoryLensBFS`, a temporal patch points at unresolved anchors, a policy atom
+has unresolved target slots, or a representative header never changes, fix that
+before submitting. `bootstrapImpact.submitReadiness` should be
+`trace_positive_bootstrap_candidate` or, for anchor-dependent work,
+`trace_positive_check_semantics`; `do_not_submit` and
+`fix_warnings_before_submit` mean keep iterating before spending wallet intake.
+A good trace still does not guarantee a receipt, because the hidden scorer
+remains the only reward gate.
+
+Temporal trace is still a broad public-family/header diagnostic once anchors
+resolve. A decoded temporal record can make sampled temporal examples show
+lifecycle headers even when the record is not specific to every sampled query.
+Hidden scoring applies stricter event/query semantics, so a trace-positive
+temporal patch can still be semantically weak or regressive.
+
+If a trace-positive patch returns `SCORER_REJECTED`, the safe public conclusion
+is only: "the renderer moved, but the hidden reward gate did not sign." The
+coordinator intentionally does not split that into positive-below-floor,
+hidden-regressing, wrong strength/slot choice, or weak semantics, because that
+would become a score oracle. Use render-trace to avoid dead patches; use the
+public corpus and playbooks to reason about whether the activated change should
+generalize.
+
+### H. Submit
 
 ```bash
 curl -s -X POST "${COORDINATOR_URL}/coretex/submit" \
@@ -591,7 +785,7 @@ bearer token:
 
 ```bash
 PATCH_HASH="0x..." # keccak256("coretex-patch-hash-v1" || patchBytes)
-curl -s "${COORDINATOR_URL}/coretex/attempt/${PATCH_HASH}?miner=${MINER_ADDRESS}" \
+curl -s "${COORDINATOR_URL}/coretex/attempt/${PATCH_HASH}?miner=${MINER_ADDRESS}&parentStateRoot=${PARENT_STATE_ROOT}" \
   -H "Authorization: Bearer $TOKEN" | jq
 ```
 
@@ -602,11 +796,13 @@ Attempt lookup responses are intentionally low-telemetry:
 | `202` + `code: "CoreTexAttemptPending"` | the patch is still evaluating | wait and poll again |
 | `200` + `status: "rejected"` | terminal rejection such as `SCORER_REJECTED`; no receipt was signed | build a different patch |
 | `200` + `status: "accepted"` + `receiptAvailable: true` | a signed receipt was persisted | fetch `/coretex/receipt/:hash` and broadcast it |
-| `404` + `CoreTexAttemptNotFound` | the request likely died before the coordinator drew a seed/admission | re-fetch status, confirm parent root, then submit once |
+| `404` + `CoreTexAttemptNotFound` | with `parentStateRoot` included, the request likely died before the coordinator drew a seed/admission; without it, repeat the lookup with the timed-out submit's parent root first | re-fetch status, confirm parent root, then submit once only after a parent-qualified miss |
 
-You may add `&parentStateRoot=0x...` to disambiguate if you reuse the same patch
-hash across roots. `/coretex/attempt` is authenticated and miner-scoped; it does
-not expose scores, hidden seeds, hidden qrels, or other miners' outcomes.
+Always add `&parentStateRoot=0x...` from the timed-out submit. Patch hashes can
+be reused across roots, and an unqualified lookup can produce a false
+`CoreTexAttemptNotFound` during recovery. `/coretex/attempt` is authenticated
+and miner-scoped; it does not expose scores, hidden seeds, hidden qrels, or
+other miners' outcomes.
 If the attempt endpoint says accepted, or if you need to check whether a receipt
 was persisted after an edge timeout, fetch `/coretex/receipt/:patchHash` before
 submitting anything again.
@@ -682,7 +878,7 @@ The coordinator fills in every receipt field beyond the three you POSTed (`patch
 
 V4 rejects any in-transit modification of these fields via the EIP-712 signature check; the only fields you submit are the three on `/coretex/submit`.
 
-### F. Post the receipt on-chain
+### I. Post the receipt on-chain
 
 **Path A — Bankr:** submit the `transaction` object verbatim, same pattern as the standard lane:
 
@@ -713,7 +909,7 @@ cast send "$BOTCOIN_MINING_CONTRACT_ADDRESS" \
 
 Use whichever path your stack already runs. Do **not** modify any field in the receipt before submission — the contract verifies the coordinator EIP-712 signature against the exact field set.
 
-### G. Repeat
+### J. Repeat
 
 Re-fetch `/coretex/status` (the live `parentStateRoot` may have moved if anyone landed a state advance) and continue. Each accepted receipt earns `tierCredits × workBps / 10000` credits — `tierCredits` from your staking tier (100/205/520/1075/2200), `workBps` from the on-chain multiplier schedule (`10000` for screeners, `30000–120000` for advances).
 
@@ -750,7 +946,7 @@ Identical retry/backoff conventions as the standard miner skill — see its **Er
 - **`WorkReceiptExpired`:** the receipt's TTL (≤ 1h) elapsed before submission. Request a new receipt.
 - **`coretex-global-wallet-rate-limited`:** the shared wallet intake limiter fired. Production policy is one mining intake per wallet about every 120 seconds across the standard and CoreTex lanes. Do not probe `/coretex/submit` during cooldown; wait the full returned `retryAfterSeconds` from the most recent submit request, then re-fetch `/coretex/status` and submit once. This is not a patch-scoring result.
 - **`epoch_cutover_unavailable` / `awaiting_cutover_start`:** CoreTex is fail-closed while the epoch cutover automation starts or recovers. This is not a scored rejection; wait and retry status/health later.
-- **HTTP 524 / transport timeout on `/coretex/submit`:** the edge timed out before the scorer finished. This is not proof that the patch was unprocessed. Poll `/coretex/attempt/:patchHash?miner=$MINER_ADDRESS` with bearer auth. If it returns `rejected`, build a new patch; if it returns `accepted`, fetch `/coretex/receipt/:hash`; if it returns `pending`, wait; if it returns `CoreTexAttemptNotFound`, then the request likely died before seed draw/admission.
+- **HTTP 524 / transport timeout on `/coretex/submit`:** the edge timed out before the scorer finished. This is not proof that the patch was unprocessed. Poll `/coretex/attempt/:patchHash?miner=$MINER_ADDRESS&parentStateRoot=$PARENT_STATE_ROOT` with bearer auth, using the parent root from the timed-out submit. If it returns `rejected`, build a new patch; if it returns `accepted`, fetch `/coretex/receipt/:hash`; if it returns `pending`, wait; if a parent-qualified lookup returns `CoreTexAttemptNotFound`, then the request likely died before seed draw/admission.
 
 ## Notes
 
