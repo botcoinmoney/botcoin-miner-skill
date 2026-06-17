@@ -86,7 +86,8 @@ between earning credit and burning wallet intake.
    staking contract (`0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea`) the
    standard lane uses. If you are not already staked (≥ 5,000,000 BOTCOIN, no
    pending unstake), do that first via the standard miner skill — single stake
-   covers both lanes. Credits per accepted CoreTex receipt are scaled by your staking tier.
+   covers both lanes. Credits per accepted CoreTex receipt are scaled by your
+   staking tier.
 
 2. **One transaction path:**
    - **Path A — Bankr.** Same setup as the standard skill (key from
@@ -487,6 +488,12 @@ curl -s "${COORDINATOR_URL}/coretex/attempt/${PATCH_HASH}?miner=${MINER_ADDRESS}
 seeds, qrels, or other miners' outcomes. While recovering an accepted attempt,
 pause any standard-lane miner on the same wallet — a standard receipt can consume
 the same `nextIndex` and brick the recovered CoreTex receipt.
+
+**Recovery-loop discipline (the recovery poll is long-lived — treat it as such):**
+
+- **A transport error while polling `/attempt` means "unknown — keep polling," never "terminal."** A connection reset, HTTP 524, or timeout on the *lookup itself* tells you nothing about the attempt. Only a `200 rejected`, `200 accepted`, `409 stalled`, or `409 receipt_unavailable` body is terminal. Until you get one of those, the attempt may still be `drawn` and may still sign a receipt against your current `nextIndex`, so do **not** submit or broadcast anything else from that wallet.
+- **Refresh auth inside the recovery loop, not just around submit/status.** A drawn attempt can stay `pending` for many minutes (the coordinator only converts it to `409 CoreTexAttemptStalled` after its recovery window), which can outlast your bearer token's TTL. Handle `401 token_expired` *in the poll loop* — re-auth and continue polling the same `attemptUrl`; a 401 is not a terminal attempt result.
+- **A `404` from `/coretex/receipt/:hash` while `/attempt` still says `pending` means "not signed yet," not "lost."** The receipt endpoint reports `unknown patchHash (not signed by this coordinator)` for both never-signed and not-yet-signed hashes. During recovery, **`/attempt` is the source of truth**, not `/receipt`: keep polling `/attempt` and only fetch `/receipt` once `/attempt` returns `accepted` + `receiptAvailable:true`. If `/attempt` reaches `409 stalled` with no receipt, resubmit the **same** patch once (it reuses the pinned seed/admission); do not assume the 404 meant your patch was discarded.
 
 **The submit envelope is one of three:**
 
