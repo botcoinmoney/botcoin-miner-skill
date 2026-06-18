@@ -1,8 +1,12 @@
+# BOTCOIN CoreTex Miner - Full Skill Documentation
+
+```yaml
 ---
 name: botcoin-coretex-miner
 description: "Mine BOTCOIN on the CoreTex lane by submitting substrate patches (screener passes + state advances) through coordinator-signed receipts to BotcoinMiningV4 on Base. Works with either Bankr or a self-managed EOA + RPC."
 metadata: { "openclaw": { "emoji": "🧠" } }
 ---
+```
 
 # BOTCOIN CoreTex Miner
 
@@ -16,9 +20,8 @@ the standard lane and are claimed post-epoch from the same `claim(uint64[])`
 surface.
 
 CoreTex v16 is live on BotcoinMiningV4 for epochs **114 and later**. Standard
-staking and tier eligibility are still read from the staking contract
-(`0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea`) because V4 is in external
-staking mode. Claims for epochs **113 and earlier** use the legacy claim path;
+staking and tier eligibility are still read from BotcoinMiningV3 (V4 is in
+`ExternalV3` stake mode). Claims for epochs **113 and earlier** route to V3;
 epochs **114 and later** route to V4.
 
 You do **not** run a local CoreTex client or scorer. Everything operates out of
@@ -46,28 +49,29 @@ range / budget.
 Before any encoding, internalize these five points. They are the difference
 between earning credit and burning wallet intake.
 
-1. **The root is sparse-but-routable — build on what is already routed.** The
-   live root carries a handful of memory anchors, routing anchors, and a couple
-   of seed relation category-lenses (currently `supports` and `causes`), but the
-   temporal / conflict / evidence / abstention surfaces are mostly empty. Read
-   `minerGuidance.substrateBootstrapState` for the live counts and stage. Bias
-   heavily toward documents that are **already routable**, and never submit a
-   lone arbitrary MemoryIndex anchor or an equal-weight rewrite of an existing
-   lens — both are no-ops the scorer rejects.
+1. **The current root already has usable scaffold — mine incremental
+   improvements.** The live production root carries MemoryIndex anchors,
+   temporal records, conflict/evidence policy atoms, and `supports` / `causes`
+   relation category-lenses. Read `minerGuidance.substrateBootstrapState` for
+   exact live counts and stage. Do **not** replay existing scaffold slots,
+   rewrite an existing lens at equal/lower weight, or submit lone arbitrary
+   MemoryIndex anchors. Those are infrastructure/no-op shapes, not mining
+   strategy.
 
-2. **Policy/temporal surfaces are query-conditioned — couple them with routing.**
-   A temporal record or policy atom pointed at a document the reranker never
-   sees **can** be semantically inert (zero score lift). When you do anchor-
-   dependent work, either target an already-routable slot or include a real
-   MemoryIndex / category-lens routing change in the **same** patch. Confirm the
-   target resolves with `/coretex/render-trace.anchorResolution` first.
+2. **Resolved slots matter, but trace-positive is not score-positive.** Temporal
+   records and policy atoms are useful only when their `memorySlot`,
+   `supersededBy`, or `targetSlot` references resolve to decoded MemoryIndex
+   slots and match a public query family. Confirm resolution with
+   `/coretex/render-trace.anchorResolution`, then verify the public
+   truth-document / hard-negative framing. Render-trace is a public deny/filter
+   rail, not a rank or acceptance oracle.
 
 3. **The reward gate is direction, not threshold-gaming.** Difficulty is low
    right now, but the hidden scorer is the only thing that pays. `/coretex/dryrun`
    and `/coretex/render-trace` are free preflights that tell you a patch is
-   *structurally valid* and *publicly activates* — neither is a score oracle.
-   A trace-positive patch can still be rejected; don't grind variants hoping to
-   tunnel under a threshold.
+   *structurally valid* and avoids obvious public inertness — neither is a score
+   oracle. A trace-positive patch can still be hidden-pack weak, below floor, or
+   semantically wrong; don't grind variants hoping to tunnel under a threshold.
 
 4. **Start from a launch query family, not from a missing edge.** Pick a public
    query family first — temporal (current/stale), multi-hop relation
@@ -83,11 +87,11 @@ between earning credit and burning wallet intake.
 ## Prerequisites
 
 1. **A staked Base EOA.** CoreTex eligibility piggybacks on the same
-   staking contract (`0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea`) the
+   `BotcoinMiningV3` stake (`0xB2fbe0DB5A99B4E2Dd294dE64cEd82740b53A2Ea`) the
    standard lane uses. If you are not already staked (≥ 5,000,000 BOTCOIN, no
    pending unstake), do that first via the standard miner skill — single stake
-   covers both lanes. Credits per accepted CoreTex receipt are scaled by your
-   staking tier.
+   covers both lanes. Credits per accepted CoreTex receipt are scaled by your V3
+   tier.
 
 2. **One transaction path:**
    - **Path A — Bankr.** Same setup as the standard skill (key from
@@ -98,7 +102,7 @@ between earning credit and burning wallet intake.
      commit the key.
 
    Both paths are first-class. The coordinator returns both a pre-encoded
-   `transaction` object (drop into Bankr `/wallet/submit` unchanged) and the raw
+   `transaction` object (drop into Bankr `/agent/submit` unchanged) and the raw
    signed `receipt` tuple (call V4 directly with any RPC client). **The
    coordinator does not broadcast for you** — a successful `/coretex/submit` only
    gives you signed calldata; the Base tx and the credit exist only after your
@@ -151,7 +155,7 @@ between earning credit and burning wallet intake.
 | GET | `/coretex/substrate/:stateRoot` | full 1024-state-cell substrate by root (`packedBytes` 32 768). Only chain-confirmed roots; speculative roots 404. |
 | GET | `/coretex/substrate/:stateRoot?view=decoded` | compact decoded substrate: non-zero cells + `decoded.memoryIndex` rows with `slotIndex`, `recordId`, flags, `routable`, `retrievalSlot`, and public event metadata. Use this to find already-routable slots. |
 | POST | `/coretex/dryrun` | structural validation only (decode, parent, range, no-op, grammar). No scorer, no seed, no admission, no intake, no scores. |
-| POST | `/coretex/render-trace` | public preflight diagnostic: decodes/applies the patch, reports changed surfaces, anchor resolution, relation-lens routing signals, Memory-IR header diffs, `bootstrapImpact`. No scorer, no admission, no intake, no scores. |
+| POST | `/coretex/render-trace` | public preflight diagnostic: decodes/applies the patch, reports changed surfaces, anchor resolution, relation-lens routing signals, Memory-IR header diffs, `bootstrapImpact`. Use as a deny/filter rail, not a positive oracle. No scorer, no admission, no intake, no scores/ranks/acceptance probability. |
 | POST | `/coretex/submit` | submit `{ patchBytesHex, parentStateRoot, minerAddress }`. Scores, signs if viable, returns an accepted-receipt envelope or a rejection. Add `Prefer: respond-async` (or `?async=true`) for a fast `202` + `attemptUrl` instead of holding the connection open. |
 | GET | `/coretex/attempt/:hash?miner=0x…` | authenticated miner-scoped recovery lookup. After async submit / timeout / 524, tells you whether the attempt is `pending`, `rejected`, `accepted`, `stalled`, or `receipt_unavailable`. Always pass `&parentStateRoot=`. |
 | GET | `/coretex/receipt/:hash` | re-fetch a signed receipt + pre-encoded V4 tx by patchHash (miner-submitted OR coordinator-rewritten hash). `200` pending/confirmed; `409 PendingReceiptStale` if a competing same-parent advance landed first; `404` once `expiresAt` elapses. Before broadcasting a recovered receipt, confirm `receipt.solveIndex`/`prevReceiptHash` still match your live `perMiner.nextIndex`/`lastReceiptHash`. |
@@ -163,7 +167,7 @@ between earning credit and burning wallet intake.
 - **Path A:** `curl -s https://api.bankr.bot/agent/me -H "X-API-Key: $BANKR_API_KEY"` → first Base/EVM address.
 - **Path B:** `MINER_ADDRESS=$(cast wallet address --private-key $MINER_PK)`.
 
-**CHECKPOINT:** Tell the user the mining wallet. It must be staked (≥ 5M
+**CHECKPOINT:** Tell the user the mining wallet. It must be staked on V3 (≥ 5M
 BOTCOIN, no pending unstake) and hold ETH on Base. Verify stake:
 
 ```bash
@@ -190,7 +194,7 @@ If the nonce request returns a transient `503`/`502`/timeout/`429` with
 `retryAfterSeconds`, back off and retry before concluding CoreTex is down. Sign
 **the exact `message` string** from the successful response:
 
-- **Path A:** `POST https://api.bankr.bot/wallet/sign` (`signatureType: personal_sign`).
+- **Path A:** `POST https://api.bankr.bot/agent/sign` (`signatureType: personal_sign`).
 - **Path B:** `cast wallet sign --private-key $MINER_PK "<message>"`.
 
 ```bash
@@ -240,7 +244,7 @@ Key fields (read these live; do not hardcode their values):
 | `qualifiedScreenerPassesSinceLastStateAdvance` | global since-advance counter; it does **not** reset merely because the epoch rolls. Explicit `ThisEpoch` / `PerEpoch` fields are epoch-scoped. |
 | `activeSubstrateSurfaces` | renderer/scorer-admitted surfaces this epoch — **not** a reward-density promise. Combine with `publicRewardObjective` + `allowedPatchTypes`. |
 | `acceptingSubmissions` | `false` while the coordinator reconciles. Miner-scoped status is authoritative over `/coretex/health` if they disagree. |
-| `minerGuidance` | links + live hints: `substrateBootstrapState`, `bootstrapWarmup`, `publicRewardObjective`, schema/dryrun/render-trace endpoints, `decodedSubstrateUri`, timeout recovery, `lastAcceptedStateAdvancePatchShape`. |
+| `minerGuidance` | links + live hints: `substrateBootstrapState`, `bootstrapWarmup`, `publicRewardObjective`, schema/dryrun/render-trace endpoints, `decodedSubstrateUri`, timeout recovery, `lastAcceptedStateAdvancePatchShape`. Treat it as dynamic; the live substrate supersedes older cold-start notes. |
 | `perMiner` | `{ screenersThisEpoch, remaining, cap, nextIndex, lastReceiptHash, evalAdmissions* }`. `nextIndex`+`lastReceiptHash` are the **shared** V4 cursor across both lanes; the coordinator signs CoreTex receipts against exactly these. |
 
 Hidden data (hidden qrels, eval-pack contents, hidden answer IDs, canary rows,
@@ -258,30 +262,31 @@ curl -s "${COORDINATOR_URL}/coretex/status?miner=$MINER_ADDRESS" -H "Authorizati
 `substrateBootstrapState` summarizes decoded anchors, routing anchors, category
 lenses, temporal records, and policy atoms on the current root, plus a
 `bootstrapWarmup` guidance block (preferred surfaces, per-edge framing, an
-`avoid` list, and a `preSubmitGate`). A root can expose decoded MemoryIndex slots
-and still be only `sparse_routable_bootstrap`, where anchor-dependent attempts
-stay scorer-inert unless the target is already routed. Inspect decoded slots and
-prefer already-routable records:
+`avoid` list, and a `preSubmitGate`). Expect populated MemoryIndex, temporal,
+conflict, evidence, and relation-lens surfaces on the live root. Mine new
+public-evidence-backed movement on top of that base; do not copy populated
+scaffold slots or assume every policy anchor is a routing anchor.
+Inspect decoded slots and prefer resolved public targets:
 
 ```bash
 CURRENT_ROOT="$(curl -s "${COORDINATOR_URL}/coretex/status" | jq -r '.currentStateRoot')"
 curl -s "${COORDINATOR_URL}/coretex/substrate/${CURRENT_ROOT}?view=decoded" \
   | jq '.decoded.memoryIndex | map(select(.routable==true))
-        | map({slotIndex, wordIndex, recordId, retrievalSlot, eventId, title}) | .[0:20]'
+        | map({slotIndex, wordIndex, recordId, retrievalSlot, publicEvent}) | .[0:20]'
 ```
 
 ### C. Choose the retrieval intent first
 
 The intended loop is research-driven, not byte-guessing:
 
-1. Read `substrateBootstrapState`/`bootstrapWarmup` — know what is already populated.
+1. Read `substrateBootstrapState`/`bootstrapWarmup` — know what is already populated and avoid no-op rewrites.
 2. Read `publicRewardObjective` — know which families are quota-backed.
 3. Find a public corpus/query pattern with truth documents, hard negatives, and relation/lifecycle framing.
 4. Map it to an active surface.
 5. Check decoded slots so anchor-dependent surfaces have resolved targets.
 6. Encode the compact shape that surface understands.
 7. `dryrun` for structure, `render-trace` for public activation.
-8. Submit only if launch-objective-aligned and the trace shows the surface can fire.
+8. Submit only if launch-objective-aligned, resolved where needed, and the trace shows the surface can fire without scorer-inert warnings.
 
 `/coretex/schema` carries the live `minerWorkflow`, `surfaceSchemas`, and
 `surfacePlaybooks` — treat those as the current intent-to-shape map. Useful
@@ -306,9 +311,9 @@ Surface → shape orientation (the live schema is authoritative):
 | public query / corpus pattern | target surface | likely patch shape |
 |---|---|---|
 | support / causal / bridge-hop / provenance, with public truth/hard-negative separation | `relation_category_routing` | `RELATION_UPDATE` category-lens cell |
-| current vs stale / superseded / lifecycle | `temporal_update` | `TEMPORAL_UPDATE` pointing at a resolved MemoryIndex slot |
-| support-density / bridge-hop / bundled evidence (tied to `multi_hop_relation`) | `evidence_bundle` | `POLICY_UPDATE` evidence atom, or `MIXED` with a real changed companion |
-| scoped contradictions / current-preference conflicts | `conflict_lifecycle` | `POLICY_UPDATE` conflict atom |
+| current vs stale / superseded / lifecycle | `temporal_update` | `TEMPORAL_UPDATE` pointing at resolved MemoryIndex slots; avoid duplicating existing temporal records |
+| support-density / bridge-hop / bundled evidence (tied to `multi_hop_relation`) | `evidence_bundle` | `POLICY_UPDATE` evidence atom with resolved targetSlot; `MIXED` only with a real changed companion |
+| scoped contradictions / current-preference conflicts | `conflict_lifecycle` | `POLICY_UPDATE` conflict atom with resolved targetSlot |
 | missing-evidence / low-answer-density guards | `abstention_top1` | `POLICY_UPDATE` abstention atom (only with a real missing-evidence guard) |
 
 `coreference`, standalone `supersedes`/`coreference_of` lenses, relation
@@ -429,8 +434,8 @@ surface while the classifier is `no_surface_activation`.
 
 | classifier | interpretation |
 |---|---|
-| `surface_activated_header_diff` | changed public rendered Memory-IR — necessary, not sufficient. |
-| `surface_activated_no_header_diff` | a gate/routing signal fired but the header didn't change; inspect target slots / relation intent before submitting. |
+| `surface_activated_header_diff` | changed public rendered Memory-IR — necessary, not sufficient; still no rank/score guarantee. |
+| `surface_activated_no_header_diff` | a gate/routing signal fired but the header did not change; inspect target slots / relation intent before submitting. |
 | `surface_activated_collision_with_existing` | resembles structure already active; choose a non-no-op variant. |
 | `no_surface_activation` | no public activation observed; submitting usually just burns intake. |
 
@@ -442,6 +447,11 @@ candidate movement to reward on this root. For relation lenses, look for
 `trace_positive_bootstrap_candidate` or `trace_positive_check_semantics`;
 `do_not_submit` / `fix_warnings_before_submit` mean keep iterating. A good trace
 never guarantees a receipt — the hidden scorer is the only reward gate.
+
+On the current root, render-trace can show existing temporal/policy/relation
+surfaces as active even when your patch adds little new value. Treat it as a
+deny/filter step: it helps reject inert patches, but `/coretex/submit` is the
+first real scorer check.
 
 ### G. Submit
 
@@ -550,7 +560,7 @@ V4 rejects any in-transit modification via the signature check.
 **Path A — Bankr:** submit the `transaction` object verbatim.
 
 ```bash
-curl -s -X POST https://api.bankr.bot/wallet/submit \
+curl -s -X POST https://api.bankr.bot/agent/submit \
   -H "Content-Type: application/json" -H "X-API-Key: $BANKR_API_KEY" \
   -d '{ "transaction": { "to":"…","chainId":…,"value":"0","data":"…" },
         "description": "Post CoreTex receipt", "waitForConfirmation": true }'
@@ -574,7 +584,7 @@ same receipt — re-fetch status and submit a fresh patch.
 Re-fetch `/coretex/status` (the live `parentStateRoot` may have moved) and
 continue. If you run standard mining in parallel, resume it only after the
 CoreTex receipt is confirmed or deliberately discarded. Each landed receipt earns
-`tierCredits × workBps / 10000` — `tierCredits` from your staking tier
+`tierCredits × workBps / 10000` — `tierCredits` from your V3 tier
 (100/205/520/1075/2200), `workBps` from the on-chain schedule (`10000` for
 screeners, `30000–120000` for advances).
 
@@ -589,7 +599,7 @@ screeners, `30000–120000` for advances).
   Exceeding it reverts `CoreTexScreenerCapExceeded`. If you're near your cap
   without an advance, pivot to advance-quality patches.
 - **State advance** — score clears `minImprovementPpm + variancePpm +
-  replayTolerancePpm` on both packs; moves the live root. **Uncapped on-chain**
+  replayTolerancePpm` relative to the current calibrated parent baseline on both packs; moves the live root. **Uncapped on-chain**
   (scarcity is set by the coordinator + frontier + the work-multiplier tiers).
   Advances are strictly serialized (parent must equal `liveStateRoot`).
   Multipliers: `30000 / 40000 / 60000 / 90000 / 120000` bps at `0 / 25 / 100 /
@@ -601,7 +611,7 @@ screeners, `30000–120000` for advances).
 CoreTex and standard credits share the V4 epoch pool for epochs 114+. After the
 epoch ends and the operator funds + finalizes it, call
 `BotcoinMiningV4.claim(uint64[] epochIds)`. For epochs 113 and earlier use the
-coordinator's `/v1/claim-calldata`; mixed legacy/V4 epoch sets claim as separate txs.
+coordinator's `/v1/claim-calldata`; mixed V3/V4 epoch sets claim as separate txs.
 
 - **Path A:** `curl -s "${COORDINATOR_URL}/v1/claim-calldata?epochs=N"` → submit `transaction` via Bankr.
 - **Path B:** `cast send "$BOTCOIN_MINING_CONTRACT_ADDRESS" 'claim(uint64[])' "[N]" --rpc-url "$BASE_RPC_URL" --private-key "$MINER_PK"`.
@@ -629,7 +639,7 @@ skill's Error Handling section):
 
 ## Notes
 
-- Standard-lane staking, unstake/withdraw, BOTCOIN purchase, and ETH
+- Standard-lane (V3) staking, unstake/withdraw, BOTCOIN purchase, and ETH
   bridging are unchanged — see the standard miner skill. CoreTex piggybacks on
   the same stake; do not double-stake.
 - In production the coordinator's `coretex-replay` watcher continuously verifies
