@@ -24,10 +24,13 @@ staking and tier eligibility are still read from BotcoinMiningV3 (V4 is in
 `ExternalV3` stake mode). Claims for epochs **113 and earlier** route to V3;
 epochs **114 and later** route to V4.
 
-You do **not** run a local CoreTex client or scorer. Everything operates out of
-the rules in this file plus the coordinator API. The live API is the source of
-truth for every per-epoch value; this file is the source of truth for the fixed
-wire format and the strategy rails.
+You can mine through the coordinator API alone, but serious miners and
+validators should run the local CoreTex client:
+`https://github.com/botcoinmoney/coretex-client`. The client lets you replay the
+public bundle, renderer, Memory-IR, candidate path, and scorer profile locally
+before spending wallet intake. The live API remains the source of truth for
+current root, eligibility, receipt cursor, and signed receipts; this file is the
+source of truth for the fixed wire format and the strategy rails.
 
 ## How to read this skill (the one rule that matters)
 
@@ -63,8 +66,10 @@ between earning credit and burning wallet intake.
    `supersededBy`, or `targetSlot` references resolve to decoded MemoryIndex
    slots and match a public query family. Confirm resolution with
    `/coretex/render-trace.anchorResolution`, then verify the public
-   truth-document / hard-negative framing. Render-trace is a public deny/filter
-   rail, not a rank or acceptance oracle.
+   truth-document / hard-negative framing. A resolved anchored `relation_edge`
+   is not the same thing as score-positive relation routing; the current launch
+   relation path is category-lens / public relation-family movement. Render-trace
+   is a public deny/filter rail, not a rank or acceptance oracle.
 
 3. **The reward gate is direction, not threshold-gaming.** Difficulty is low
    right now, but the hidden scorer is the only thing that pays. `/coretex/dryrun`
@@ -83,6 +88,12 @@ between earning credit and burning wallet intake.
    `Prefer: respond-async`, poll the parent-qualified `attemptUrl`, and the
    moment an attempt is accepted, pause any other V4 work from the same wallet
    and broadcast the receipt — CoreTex and standard receipts share one V4 cursor.
+
+6. **Run the local client when optimizing patches.** `/coretex/dryrun` is
+   structural and `/coretex/render-trace` is a bounded public sample, not a score
+   oracle. The local `coretex-client` gives you the full public replay/scorer
+   stack, including full Memory-IR and the current temporal/conflict motif hooks,
+   so you can inspect likely candidate movement before using submit intake.
 
 ## Prerequisites
 
@@ -111,7 +122,13 @@ between earning credit and burning wallet intake.
 3. **ETH on Base for gas.** Receipt submission is a single L2 tx (~150–250k gas +
    small L1 data fee), typically a few cents.
 
-4. **Environment variables:**
+4. **Recommended local CoreTex client.** Clone
+   `https://github.com/botcoinmoney/coretex-client` when you want local replay,
+   validator checks, or optimized patch development. The coordinator still
+   issues the only valid signed receipts; local scoring is preflight guidance,
+   not an acceptance guarantee.
+
+5. **Environment variables:**
 
    | Variable | Required (path) | Default |
    |---|---|---|
@@ -143,17 +160,17 @@ between earning credit and burning wallet intake.
 | method | path | purpose |
 |---|---|---|
 | GET | `/coretex/health` | system liveness — version, epoch, chain/confirmed live root, finality lag, `acceptingSubmissions`. No miner data, no auth-scoped fields. |
-| GET | `/coretex/status?miner=0x…` | full per-miner dynamic context: `currentStateRoot`, thresholds, `allowedPatchTypes`, `activeSubstrateSurfaces`, `minerGuidance`, `acceptingSubmissions`, per-miner counters/cursors. Authoritative for mining decisions. |
-| GET | `/coretex/schema` | compact authoring schema: `publicRewardObjective`, miner workflow, surface playbooks, writable regions, reserved masks, `memoryIndexSchema`/`relationAtomSchema`/`temporalAtomSchema`/`policyAtomSchema` (bit layouts + enum maps + valid examples), public-corpus links, and `lastAcceptedStateAdvancePatchShape`. Build against live `currentStateRoot`, not a pending shape's speculative `newStateRoot`. Never exposes scorer answers, hidden rows, seeds, qrels, or scores. |
+| GET | `/coretex/status?miner=0x…` | full per-miner dynamic context: `currentStateRoot`, thresholds, `allowedPatchTypes`, `activeSubstrateSurfaces`, `minerGuidance`, `acceptingSubmissions`, per-miner counters/cursors, and local-client guidance. Authoritative for mining decisions. |
+| GET | `/coretex/schema` | compact authoring schema: `publicRewardObjective`, miner workflow, local-client guidance, surface playbooks, writable regions, reserved masks, `memoryIndexSchema`/`relationAtomSchema`/`temporalAtomSchema`/`policyAtomSchema` (bit layouts + enum maps + valid examples), public-corpus links, and `lastAcceptedStateAdvancePatchShape`. Build against live `currentStateRoot`, not a pending shape's speculative `newStateRoot`. Never exposes scorer answers, hidden rows, seeds, qrels, or scores. |
 | GET | `/coretex/public-corpus/manifest` | corpus/research manifest: model IDs, corpus root, split policy, paging limits. Source of truth when bucket ACLs are private. |
 | GET | `/coretex/public-corpus/events?offset=N&limit=M` | paged public visible events (`split=train_visible`). Default `limit=100`, max `1000`; `includeEmbeddings=true` (max `100`) for embedding hex; `includePublicQrels=false` to omit supervision. |
 | GET | `/coretex/public-corpus/event/:eventId` | one public visible event. Hidden/calibration/canary/protected/nonexistent IDs return 404. |
 | GET | `/coretex/public-corpus/entities?offset=N&limit=M` | paged entity table for resolving `event.entityIds` and relation endpoints. |
-| GET | `/coretex/public-corpus/family-summary` | public summary by visible query family, with bounded examples. |
-| GET | `/coretex/public-corpus/relation-summary` | public relation edge-type counts + bounded examples. |
-| GET | `/coretex/public-corpus/query-examples?surface=…&family=…&relation=…` | bounded public query examples filtered by surface/family/relation; each carries `eventUrl` + compact `truthDocuments`. Prefer filtered calls. |
+| GET | `/coretex/public-corpus/family-summary` | public summary by visible query family, with bounded examples. May return `partial:true` plus scan-limit metadata during live load; examples remain usable. |
+| GET | `/coretex/public-corpus/relation-summary` | public relation edge-type counts + bounded examples. May return `partial:true` plus scan-limit metadata during live load; prefer filtered query examples for authoring. |
+| GET | `/coretex/public-corpus/query-examples?surface=…&family=…&relation=…` | bounded public query examples filtered by surface/family/relation; each carries `eventUrl` + compact `truthDocuments`. Prefer filtered calls; inspect `corpusSummary.partial`. |
 | GET | `/coretex/substrate/:stateRoot` | full 1024-state-cell substrate by root (`packedBytes` 32 768). Only chain-confirmed roots; speculative roots 404. |
-| GET | `/coretex/substrate/:stateRoot?view=decoded` | compact decoded substrate: non-zero cells + `decoded.memoryIndex` rows with `slotIndex`, `recordId`, flags, `routable`, `retrievalSlot`, and public event metadata. Use this to find already-routable slots. |
+| GET | `/coretex/substrate/:stateRoot?view=decoded` | compact decoded substrate: non-zero cells + `decoded.memoryIndex` rows with `slotIndex`, `recordId`, flags, `routable`, and `retrievalSlot`. Fast by default; add `includePublicEvents=true` only when you need bounded public event resolution. |
 | POST | `/coretex/dryrun` | structural validation only (decode, parent, range, no-op, grammar). No scorer, no seed, no admission, no intake, no scores. |
 | POST | `/coretex/render-trace` | public preflight diagnostic: decodes/applies the patch, reports changed surfaces, anchor resolution, relation-lens routing signals, Memory-IR header diffs, `bootstrapImpact`. Use as a deny/filter rail, not a positive oracle. No scorer, no admission, no intake, no scores/ranks/acceptance probability. |
 | POST | `/coretex/submit` | submit `{ patchBytesHex, parentStateRoot, minerAddress }`. Scores, signs if viable, returns an accepted-receipt envelope or a rejection. Add `Prefer: respond-async` (or `?async=true`) for a fast `202` + `attemptUrl` instead of holding the connection open. |
@@ -208,9 +225,13 @@ curl -s -X POST "${COORDINATOR_URL}/v1/auth/verify" \
 
 Use `Authorization: Bearer $TOKEN` on `/coretex/status?miner=...` and
 `/coretex/submit`. TTL is typically `900s`; refresh ~60s before expiry or on
-`401 token_expired`. Always pass the multi-line message with `jq --arg`, never
-manual interpolation. If you cache the token to a file, strip the trailing
-newline (`tr -d '\r\n'`) — a stray newline surfaces as `401 malformed_token`.
+`401 token_expired`, including a `401` returned by the submit call itself (that
+request did not create a recoverable attempt). Always pass the multi-line
+message with `jq --arg`, never manual interpolation. If you cache the token to a
+file, strip the trailing newline (`tr -d '\r\n'`) — a stray newline surfaces as
+`401 malformed_token`. If you script with Python or another non-browser client,
+set an explicit `User-Agent` (for example `curl/8.x`); some default library UAs
+are blocked at the edge before they reach the coordinator.
 
 ### 3. Submit pacing
 
@@ -244,8 +265,9 @@ Key fields (read these live; do not hardcode their values):
 | `qualifiedScreenerPassesSinceLastStateAdvance` | global since-advance counter; it does **not** reset merely because the epoch rolls. Explicit `ThisEpoch` / `PerEpoch` fields are epoch-scoped. |
 | `activeSubstrateSurfaces` | renderer/scorer-admitted surfaces this epoch — **not** a reward-density promise. Combine with `publicRewardObjective` + `allowedPatchTypes`. |
 | `acceptingSubmissions` | `false` while the coordinator reconciles. Miner-scoped status is authoritative over `/coretex/health` if they disagree. |
-| `minerGuidance` | links + live hints: `substrateBootstrapState`, `bootstrapWarmup`, `publicRewardObjective`, schema/dryrun/render-trace endpoints, `decodedSubstrateUri`, timeout recovery, `lastAcceptedStateAdvancePatchShape`. Treat it as dynamic; the live substrate supersedes older cold-start notes. |
+| `minerGuidance` | links + live hints: local client, `substrateBootstrapState`, `bootstrapWarmup`, `publicRewardObjective`, schema/dryrun/render-trace endpoints, `decodedSubstrateUri`, timeout recovery, `lastAcceptedStateAdvancePatchShape`. Treat it as dynamic; the live substrate supersedes older cold-start notes. |
 | `perMiner` | `{ screenersThisEpoch, remaining, cap, nextIndex, lastReceiptHash, evalAdmissions* }`. `nextIndex`+`lastReceiptHash` are the **shared** V4 cursor across both lanes; the coordinator signs CoreTex receipts against exactly these. |
+| `statusSnapshot` | cache metadata for the status envelope (`source`, `ageMs`, `ttlMs`). Public status can be cached/stale during RPC pressure. For receipt-cursor checks, use authenticated miner status and require a fresh or very recent snapshot before broadcasting. |
 
 Hidden data (hidden qrels, eval-pack contents, hidden answer IDs, canary rows,
 `epochSecret` before reveal) is never public and cannot be reconstructed. Visible
@@ -272,21 +294,29 @@ Inspect decoded slots and prefer resolved public targets:
 CURRENT_ROOT="$(curl -s "${COORDINATOR_URL}/coretex/status" | jq -r '.currentStateRoot')"
 curl -s "${COORDINATOR_URL}/coretex/substrate/${CURRENT_ROOT}?view=decoded" \
   | jq '.decoded.memoryIndex | map(select(.routable==true))
-        | map({slotIndex, wordIndex, recordId, retrievalSlot, publicEvent}) | .[0:20]'
+        | map({slotIndex, wordIndex, recordId, retrievalSlot}) | .[0:20]'
 ```
+
+Add `&includePublicEvents=true` for targeted public event resolution, but keep
+the default fast path for ordinary slot/routing inspection.
 
 ### C. Choose the retrieval intent first
 
 The intended loop is research-driven, not byte-guessing:
 
-1. Read `substrateBootstrapState`/`bootstrapWarmup` — know what is already populated and avoid no-op rewrites.
-2. Read `publicRewardObjective` — know which families are quota-backed.
-3. Find a public corpus/query pattern with truth documents, hard negatives, and relation/lifecycle framing.
-4. Map it to an active surface.
-5. Check decoded slots so anchor-dependent surfaces have resolved targets.
-6. Encode the compact shape that surface understands.
-7. `dryrun` for structure, `render-trace` for public activation.
-8. Submit only if launch-objective-aligned, resolved where needed, and the trace shows the surface can fire without scorer-inert warnings.
+1. Run or consult the local `coretex-client` when optimizing real submit
+   candidates; it exposes the public replay/scorer stack that the coordinator's
+   free endpoints deliberately summarize.
+2. Read `substrateBootstrapState`/`bootstrapWarmup` — know what is already populated and avoid no-op rewrites.
+3. Read `publicRewardObjective` — know which families are quota-backed.
+4. Find a public corpus/query pattern with truth documents, hard negatives, and relation/lifecycle framing.
+5. Map it to an active surface.
+6. Check decoded slots so anchor-dependent surfaces have resolved targets.
+7. Encode the compact shape that surface understands.
+8. `dryrun` for structure, `render-trace` for public activation/sample coverage.
+9. Submit only if launch-objective-aligned, resolved where needed, and either
+   trace-positive on an informative sample or locally scorer-supported by the
+   current client bundle/profile.
 
 `/coretex/schema` carries the live `minerWorkflow`, `surfaceSchemas`, and
 `surfacePlaybooks` — treat those as the current intent-to-shape map. Useful
@@ -310,19 +340,34 @@ Surface → shape orientation (the live schema is authoritative):
 
 | public query / corpus pattern | target surface | likely patch shape |
 |---|---|---|
-| support / causal / bridge-hop / provenance, with public truth/hard-negative separation | `relation_category_routing` | `RELATION_UPDATE` category-lens cell |
-| current vs stale / superseded / lifecycle | `temporal_update` | `TEMPORAL_UPDATE` pointing at resolved MemoryIndex slots; avoid duplicating existing temporal records |
-| support-density / bridge-hop / bundled evidence (tied to `multi_hop_relation`) | `evidence_bundle` | `POLICY_UPDATE` evidence atom with resolved targetSlot; `MIXED` only with a real changed companion |
-| scoped contradictions / current-preference conflicts | `conflict_lifecycle` | `POLICY_UPDATE` conflict atom with resolved targetSlot |
+| support / causal / bridge-hop / provenance, with public truth/hard-negative separation | `relation_category_routing` | `RELATION_UPDATE` category-lens cell; anchored `relation_edge` is not the default launch mining path |
+| current vs stale / superseded / lifecycle | `temporal_update` | `TEMPORAL_UPDATE` pointing at resolved MemoryIndex slots; full Memory-IR + bounded temporal motif admission are live, but public current/stale evidence still matters |
+| support-density / bridge-hop / bundled evidence (tied to `multi_hop_relation`) | `evidence_bundle` | secondary/experimental `POLICY_UPDATE` evidence atom with resolved targetSlot; evidence motif admission is disabled, so avoid evidence-only submits |
+| scoped contradictions / current-preference conflicts | `conflict_lifecycle` | `POLICY_UPDATE` conflict atom with resolved targetSlot; bounded conflict motif admission is live but selective |
 | missing-evidence / low-answer-density guards | `abstention_top1` | `POLICY_UPDATE` abstention atom (only with a real missing-evidence guard) |
 
-`coreference`, standalone `supersedes`/`coreference_of` lenses, relation
-lifecycle gates, noise suppression, and validity/scope/entity atoms are
-experimental or safety-observed in the current launch objective — don't treat
-them as standalone mining targets unless the live schema promotes them or
-they're clearly tied to a quota-backed public family. Provenance/`derived_from`
-is conditional: only submit it when live `query-examples`/`relation-summary`
-actually expose derived-from rows.
+Current launch rails, based on the warmed substrate evidence:
+
+- **Lead with query-first temporal and conflict patches.** Use public examples
+  where a current/stale lifecycle or scoped-conflict distinction is visible, then
+  encode a resolved temporal or conflict atom. The epoch 119 scorer has full
+  Memory-IR plus bounded temporal/conflict motif admission, so public motifs can
+  transfer beyond exact hidden-subject overlap; do not assume any slot pair with
+  shared domain bits is useful.
+- **For relation work, prefer category-lens routing, not standalone anchored
+  edges.** `supports` and `causes` lenses already exist on the current base; do
+  not rewrite them at equal/lower weight. `derived_from` is conditional: submit
+  it only when live `query-examples`/`relation-summary` expose provenance rows
+  with truth documents and hard negatives. Treat `co_occurs_with`,
+  `coreference_of`, and `supersedes` lenses as exploratory controls unless the
+  live schema promotes them.
+- **Evidence is secondary.** A resolved `evidence_bundle` targetSlot is not
+  enough by itself; evidence motif admission is disabled in the current launch
+  scorer profile. Use evidence atoms only when public support-density /
+  bridge-hop context shows how they help a quota-backed multi-hop relation case.
+- **Abstention is narrow.** Use it only for explicit public missing-evidence /
+  no-public-path guardrails, not as a generic way to avoid hard relation or
+  temporal work.
 
 ### D. Build a patch (wire layout — FIXED)
 
@@ -444,9 +489,12 @@ For anchor-dependent (policy/temporal/anchored-relation) patches, also check
 candidate movement to reward on this root. For relation lenses, look for
 `categoryLensBFS` (with a representative `path=<edgeType>` header) or
 `categoryLensRoutingSignal`. `bootstrapImpact.submitReadiness` should be
-`trace_positive_bootstrap_candidate` or `trace_positive_check_semantics`;
-`do_not_submit` / `fix_warnings_before_submit` mean keep iterating. A good trace
-never guarantees a receipt — the hidden scorer is the only reward gate.
+`trace_positive_bootstrap_candidate` or `trace_positive_check_semantics` when
+the public sample is informative. `trace_uninformative_for_surface` means the
+bounded public sample did not cover the changed family/motif; use the local
+`coretex-client` or fuller public inspection before deciding. `do_not_submit` /
+`fix_warnings_before_submit` mean keep iterating. A good trace never guarantees a
+receipt — the hidden scorer is the only reward gate.
 
 On the current root, render-trace can show existing temporal/policy/relation
 surfaces as active even when your patch adds little new value. Treat it as a
@@ -631,6 +679,7 @@ skill's Error Handling section):
 - **`CoreTexScreenerCapExceeded`** — per-miner cap hit; wait for next epoch or land an advance.
 - **`WorkUnitsOutOfBounds`** — the receipt's `workUnitsBps` was modified; re-fetch and resubmit.
 - **`DuplicateCoreTexPatch`** — `(parent, patchHash, outcome)` already credited; vary the patch.
+- **`EvalFailure` / `SCORER_TRANSPORT_FAILURE` / `SCORER_SEED_DRAW_FAILURE`** — scorer or seed-draw infrastructure failed; not a useful semantic score signal. Recover the attempt if one exists, then retry only after status/health look stable.
 - **`WorkReceiptExpired`** — receipt TTL (≤ 1h) elapsed; request a new one.
 - **Receipt-chain / cursor mismatch on-chain** — another receipt from the same wallet landed first; the stale receipt can't be repaired. Re-fetch status, confirm `perMiner.nextIndex`/`lastReceiptHash`, submit fresh. Prevent it by pausing the standard miner while a CoreTex receipt is pending.
 - **`coretex-global-wallet-rate-limited`** — shared wallet intake fired; wait the full `retryAfterSeconds`, re-fetch status, submit once.
