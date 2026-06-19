@@ -89,11 +89,14 @@ between earning credit and burning wallet intake.
    moment an attempt is accepted, pause any other V4 work from the same wallet
    and broadcast the receipt — CoreTex and standard receipts share one V4 cursor.
 
-6. **Run the local client when optimizing patches.** `/coretex/dryrun` is
-   structural and `/coretex/render-trace` is a bounded public sample, not a score
-   oracle. The local `coretex-client` gives you the full public replay/scorer
-   stack, including full Memory-IR and the current temporal/conflict motif hooks,
-   so you can inspect likely candidate movement before using submit intake.
+6. **Use broad public motif discovery before local optimization.** Non-client
+   miners should start with the existing `/coretex/status`, `/coretex/schema`,
+   and `/coretex/public-corpus/*` surfaces: `family-summary.surfaceSummary`,
+   `relation-summary`, and `query-examples?surface=...` expose the public
+   lifecycle, scope, relation, truth-document, and hard-negative motifs needed
+   for generalized patches. The local `coretex-client` is the full-stack replay
+   path for deeper optimization, but raw Qwen scripts are not a substitute for
+   CoreTex scoring.
 
 ## Prerequisites
 
@@ -122,11 +125,12 @@ between earning credit and burning wallet intake.
 3. **ETH on Base for gas.** Receipt submission is a single L2 tx (~150–250k gas +
    small L1 data fee), typically a few cents.
 
-4. **Recommended local CoreTex client.** Clone
+4. **Optional full-stack CoreTex client.** Clone
    `https://github.com/botcoinmoney/coretex-client` when you want local replay,
    validator checks, or optimized patch development. The coordinator still
    issues the only valid signed receipts; local scoring is preflight guidance,
-   not an acceptance guarantee.
+   not an acceptance guarantee. You can still discover public motifs through
+   the coordinator endpoints alone.
 
 5. **Environment variables:**
 
@@ -304,16 +308,17 @@ the default fast path for ordinary slot/routing inspection.
 
 The intended loop is research-driven, not byte-guessing:
 
-1. Run or consult the local `coretex-client` when optimizing real submit
-   candidates; it exposes the public replay/scorer stack that the coordinator's
-   free endpoints deliberately summarize.
-2. Read `substrateBootstrapState`/`bootstrapWarmup` — know what is already populated and avoid no-op rewrites.
-3. Read `publicRewardObjective` — know which families are quota-backed.
+1. Read `minerGuidance.publicDiscovery` and `publicRewardObjective`.
+2. Read `family-summary.surfaceSummary`, `relation-summary`, and filtered
+   `query-examples?surface=...` to find repeated public motifs across rows.
+3. Read `substrateBootstrapState`/`bootstrapWarmup` — know what is already populated and avoid no-op rewrites.
 4. Find a public corpus/query pattern with truth documents, hard negatives, and relation/lifecycle framing.
 5. Map it to an active surface.
 6. Check decoded slots so anchor-dependent surfaces have resolved targets.
 7. Encode the compact shape that surface understands.
 8. `dryrun` for structure, `render-trace` for public activation/sample coverage.
+   Treat `querySample` rows as representative diagnostics, not as a target list
+   of exact query IDs, document IDs, or slots to patch one by one.
 9. Submit only if launch-objective-aligned, resolved where needed, and either
    trace-positive on an informative sample or locally scorer-supported by the
    current client bundle/profile.
@@ -324,17 +329,37 @@ research calls:
 
 ```bash
 curl -s "${COORDINATOR_URL}/coretex/public-corpus/relation-summary" | jq
-curl -s "${COORDINATOR_URL}/coretex/public-corpus/family-summary" | jq
+curl -s "${COORDINATOR_URL}/coretex/public-corpus/family-summary" | jq '.surfaceSummary'
 curl -s "${COORDINATOR_URL}/coretex/public-corpus/query-examples?surface=relation_category_routing&relation=supports&limit=20" | jq
-curl -s "${COORDINATOR_URL}/coretex/public-corpus/query-examples?family=temporal&limit=20" | jq
+curl -s "${COORDINATOR_URL}/coretex/public-corpus/query-examples?surface=temporal_update&limit=20" | jq
+curl -s "${COORDINATOR_URL}/coretex/public-corpus/query-examples?surface=conflict_lifecycle&limit=20" | jq
 ```
 
 The map endpoints are keyed objects, not arrays
 (`family-summary.families.near_collision`, `relation-summary.relations.causes`).
+Public `family=` filters match `event.family`; they are not hidden-pack quota
+mirrors. If `family=temporal` or `family=conflict_lifecycle` returns zero rows,
+do not conclude the surface is absent or unwinnable. Use `surface=temporal_update`,
+`surface=conflict_lifecycle`, `relation=supersedes`, `relation=supports`,
+`relation=causes`, `relation=coreference_of`, `relation-summary`, and
+`family-summary.surfaceSummary` to inspect public motifs.
 The useful move is to derive compact patches that help **many** public cases and
 plausibly generalize to held-out scorer packs. Single-event hidden guessing just
 burns intake. A 404 on a hidden event ID is a privacy boundary, not a signal to
 brute-force.
+
+Render-trace `querySample` rows are a microscope, not a shopping list. Use them
+to understand repeated public motifs, header/source-tag behavior, and why a patch
+is inert or ambiguous; then validate the generalized hypothesis across corpus
+summaries, filtered query examples, truth documents, hard negatives, and local
+`coretex-client` replay when available. Do not mine by patching one sampled
+query or one sampled MemoryIndex slot at a time.
+
+`renderedHeaderDiff.beforeHeader` / `afterHeader` are Memory-IR diagnostics for
+a representative query frame, not canonical truth labels for the sampled event or
+document. For example, `lifecycle=superseded` in a trace header can reflect the
+query's lifecycle intent or route context; it is not by itself proof that that
+document is incorrectly marked stale.
 
 Surface → shape orientation (the live schema is authoritative):
 
