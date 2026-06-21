@@ -1,4 +1,4 @@
-# BOTCOIN CoreTex Miner - Full Skill Documentation
+# BOTCOIN CoreTex Miner - Skill Documentation
 
 ```yaml
 ---
@@ -28,9 +28,8 @@ You can mine through the coordinator API alone, but serious miners and
 validators should run the local CoreTex client:
 `https://github.com/botcoinmoney/coretex-client`. The client lets you replay the
 public bundle, renderer, Memory-IR, candidate path, and scorer profile locally
-before spending wallet intake. The live API remains the source of truth for
-current root, eligibility, receipt cursor, and signed receipts; this file is the
-source of truth for the fixed wire format and the strategy rails.
+before spending wallet intake. The live API remains the source of truth for the
+current root, eligibility, receipt cursor, and signed receipts.
 
 ## How to read this skill (the one rule that matters)
 
@@ -47,9 +46,9 @@ chars. Ethereum calls this a "word", so wire fields keep names like `wordCount`,
 `wordIndexRange`, `patchWordBudget` — read those as state-cell count / index
 range / budget.
 
-## Start here: the current mining reality
+## Start here: current mining reality
 
-Before any encoding, internalize these five points. They are the difference
+Before any encoding, internalize these six points. They are the difference
 between earning credit and burning wallet intake.
 
 1. **The current root already has usable scaffold — mine incremental
@@ -67,19 +66,19 @@ between earning credit and burning wallet intake.
    slots and match a public query family. Confirm resolution with
    `/coretex/render-trace.anchorResolution`, then verify the public
    truth-document / hard-negative framing. A resolved anchored `relation_edge`
-   is not the same thing as score-positive relation routing; the current launch
-   relation path is category-lens / public relation-family movement. Render-trace
+   is not the same thing as score-positive relation routing; relation-category
+   routing is category-lens / public relation-family movement. Render-trace
    is a public deny/filter rail, not a rank or acceptance oracle.
 
-3. **The reward gate is direction, not threshold-gaming.** Difficulty is low
-   right now, but the hidden scorer is the only thing that pays. `/coretex/dryrun`
-   and `/coretex/render-trace` are free preflights that tell you a patch is
-   *structurally valid* and avoids obvious public inertness — neither is a score
-   oracle. A trace-positive patch can still be hidden-pack weak, below floor, or
-   semantically wrong; don't grind variants hoping to tunnel under a threshold.
+3. **The reward gate is direction, not threshold-gaming.** The hidden scorer is
+   the only thing that pays. `/coretex/dryrun` and `/coretex/render-trace` are
+   free preflights that tell you a patch is *structurally valid* and avoids
+   obvious public inertness — neither is a score oracle. A trace-positive patch
+   can still be hidden-pack weak, below floor, or semantically wrong; don't grind
+   variants hoping to tunnel under a threshold.
 
-4. **Start from a launch query family, not from a missing edge.** Pick a public
-   query family first — temporal (current/stale), multi-hop relation
+4. **Start from a query family, not from a missing edge.** Pick a public query
+   family first — temporal (current/stale), multi-hop relation
    (support/causal/provenance), conflict-lifecycle, or near-collision/
    missing-evidence — then map it to a surface and encode. Do **not** start from
    "edge code X is missing" or a guessed hidden document ID.
@@ -89,14 +88,13 @@ between earning credit and burning wallet intake.
    moment an attempt is accepted, pause any other V4 work from the same wallet
    and broadcast the receipt — CoreTex and standard receipts share one V4 cursor.
 
-6. **Use broad public motif discovery before local optimization.** Non-client
-   miners should start with the existing `/coretex/status`, `/coretex/schema`,
-   and `/coretex/public-corpus/*` surfaces: `family-summary.surfaceSummary`,
-   `relation-summary`, and `query-examples?surface=...` expose the public
-   lifecycle, scope, relation, truth-document, and hard-negative motifs needed
-   for generalized patches. The local `coretex-client` is the full-stack replay
-   path for deeper optimization, but raw Qwen scripts are not a substitute for
-   CoreTex scoring.
+6. **Use public motif discovery before local optimization.** Start with
+   `/coretex/status`, `/coretex/schema`, and `/coretex/public-corpus/*`:
+   `family-summary.surfaceSummary`, `relation-summary`, and
+   `query-examples?surface=...` expose the public lifecycle, scope, relation,
+   truth-document, and hard-negative motifs needed for generalized patches. The
+   local `coretex-client` is the full-stack replay path; raw Qwen scripts are not
+   a substitute for CoreTex scoring.
 
 ## Prerequisites
 
@@ -125,12 +123,10 @@ between earning credit and burning wallet intake.
 3. **ETH on Base for gas.** Receipt submission is a single L2 tx (~150–250k gas +
    small L1 data fee), typically a few cents.
 
-4. **Optional full-stack CoreTex client.** Clone
-   `https://github.com/botcoinmoney/coretex-client` when you want local replay,
-   validator checks, or optimized patch development. The coordinator still
-   issues the only valid signed receipts; local scoring is preflight guidance,
-   not an acceptance guarantee. You can still discover public motifs through
-   the coordinator endpoints alone.
+4. **Optional full-stack CoreTex client.** Use
+   `https://github.com/botcoinmoney/coretex-client` for local replay, validator
+   checks, or optimized patch development. Local scoring is guidance only; the
+   coordinator still issues the only valid signed receipts.
 
 5. **Environment variables:**
 
@@ -158,13 +154,20 @@ between earning credit and burning wallet intake.
    same V4 `nextIndex` / `lastReceiptHash` cursor; if another receipt lands
    first, the signed `solveIndex` / `prevReceiptHash` is stale even if the parent
    root and TTL still look valid.
+6. **A pending CoreTex receipt blocks new CoreTex submits only while it is still
+   broadcastable.** If miner-scoped status shows
+   `perMiner.pendingReceipt.mustBroadcast=true`, or submit returns
+   `PENDING_CORETEX_RECEIPT_MUST_BROADCAST`, the prior receipt still matches the
+   live root and wallet cursor. Fetch the provided `receiptUrl` and broadcast it
+   immediately, or wait for it to expire. Do not submit variants to work around
+   this guard; it fires before wallet intake and before scorer work.
 
 ## Endpoints
 
 | method | path | purpose |
 |---|---|---|
 | GET | `/coretex/health` | system liveness — version, epoch, chain/confirmed live root, finality lag, `acceptingSubmissions`. No miner data, no auth-scoped fields. |
-| GET | `/coretex/status?miner=0x…` | full per-miner dynamic context: `currentStateRoot`, thresholds, `allowedPatchTypes`, `activeSubstrateSurfaces`, `minerGuidance`, `acceptingSubmissions`, per-miner counters/cursors, and local-client guidance. Authoritative for mining decisions. |
+| GET | `/coretex/status?miner=0x…` | full per-miner dynamic context: `currentStateRoot`, thresholds, `allowedPatchTypes`, `activeSubstrateSurfaces`, `minerGuidance`, `acceptingSubmissions`, per-miner counters/cursors, pending broadcastable receipt, and local-client guidance. Authoritative for mining decisions. |
 | GET | `/coretex/schema` | compact authoring schema: `publicRewardObjective`, miner workflow, local-client guidance, surface playbooks, writable regions, reserved masks, `memoryIndexSchema`/`relationAtomSchema`/`temporalAtomSchema`/`policyAtomSchema` (bit layouts + enum maps + valid examples), public-corpus links, and `lastAcceptedStateAdvancePatchShape`. Build against live `currentStateRoot`, not a pending shape's speculative `newStateRoot`. Never exposes scorer answers, hidden rows, seeds, qrels, or scores. |
 | GET | `/coretex/public-corpus/manifest` | corpus/research manifest: model IDs, corpus root, split policy, paging limits. Source of truth when bucket ACLs are private. |
 | GET | `/coretex/public-corpus/events?offset=N&limit=M` | paged public visible events (`split=train_visible`). Default `limit=100`, max `1000`; `includeEmbeddings=true` (max `100`) for embedding hex; `includePublicQrels=false` to omit supervision. |
@@ -179,7 +182,7 @@ between earning credit and burning wallet intake.
 | POST | `/coretex/render-trace` | public preflight diagnostic: decodes/applies the patch, reports changed surfaces, anchor resolution, relation-lens routing signals, Memory-IR header diffs, `bootstrapImpact`. Use as a deny/filter rail, not a positive oracle. No scorer, no admission, no intake, no scores/ranks/acceptance probability. |
 | POST | `/coretex/submit` | submit `{ patchBytesHex, parentStateRoot, minerAddress }`. Scores, signs if viable, returns an accepted-receipt envelope or a rejection. Add `Prefer: respond-async` (or `?async=true`) for a fast `202` + `attemptUrl` instead of holding the connection open. |
 | GET | `/coretex/attempt/:hash?miner=0x…` | authenticated miner-scoped recovery lookup. After async submit / timeout / 524, tells you whether the attempt is `pending`, `rejected`, `accepted`, `stalled`, or `receipt_unavailable`. Always pass `&parentStateRoot=`. |
-| GET | `/coretex/receipt/:hash` | re-fetch a signed receipt + pre-encoded V4 tx by patchHash (miner-submitted OR coordinator-rewritten hash). `200` pending/confirmed; `409 PendingReceiptStale` if a competing same-parent advance landed first; `404` once `expiresAt` elapses. Before broadcasting a recovered receipt, confirm `receipt.solveIndex`/`prevReceiptHash` still match your live `perMiner.nextIndex`/`lastReceiptHash`. |
+| GET | `/coretex/receipt/:hash` | re-fetch a signed receipt + pre-encoded V4 tx by patchHash (miner-submitted OR coordinator-rewritten hash). `200` pending/confirmed; `409 PendingReceiptStale` if a competing same-parent advance landed first; `409 PendingReceiptStaleCursor` if the wallet V4 cursor moved; `404` once `expiresAt` elapses. Cursor-stale/stale responses omit `transaction`. Before broadcasting a recovered receipt, confirm `receipt.solveIndex`/`prevReceiptHash` still match your live `perMiner.nextIndex`/`lastReceiptHash`. |
 
 ## Setup Flow
 
@@ -262,15 +265,15 @@ Key fields (read these live; do not hardcode their values):
 |---|---|
 | `epochId`, `currentStateRoot` | epoch + the chain-confirmed root your patch must build on. |
 | `allowedPatchTypes` | `{ name, byte, wordIndexRange, writableSubRanges }` for structurally writable types this epoch. The wire `patchType` byte is `allowedPatchTypes[i].byte`. Target only `writableSubRanges` when present. |
-| `patchWordBudget` | max state cells per patch (currently **4**). |
+| `patchWordBudget` | max state cells per patch. |
 | `exampleValidPatch` | structural template only — verify your encoder shape, not a winning patch. |
 | `minImprovementPpm` / `replayTolerancePpm` / `screenerThresholdPpm` / `stateAdvanceThresholdPpm` | live difficulty terms (see _Acceptance_ below). |
 | `perMinerScreenerCap` | on-chain V4 screener-pass cap (default **50**). |
 | `qualifiedScreenerPassesSinceLastStateAdvance` | global since-advance counter; it does **not** reset merely because the epoch rolls. Explicit `ThisEpoch` / `PerEpoch` fields are epoch-scoped. |
 | `activeSubstrateSurfaces` | renderer/scorer-admitted surfaces this epoch — **not** a reward-density promise. Combine with `publicRewardObjective` + `allowedPatchTypes`. |
 | `acceptingSubmissions` | `false` while the coordinator reconciles. Miner-scoped status is authoritative over `/coretex/health` if they disagree. |
-| `minerGuidance` | links + live hints: local client, `substrateBootstrapState`, `bootstrapWarmup`, `publicRewardObjective`, schema/dryrun/render-trace endpoints, `decodedSubstrateUri`, timeout recovery, `lastAcceptedStateAdvancePatchShape`. Treat it as dynamic; the live substrate supersedes older cold-start notes. |
-| `perMiner` | `{ screenersThisEpoch, remaining, cap, nextIndex, lastReceiptHash, evalAdmissions* }`. `nextIndex`+`lastReceiptHash` are the **shared** V4 cursor across both lanes; the coordinator signs CoreTex receipts against exactly these. |
+| `minerGuidance` | links + live hints: local client, `substrateBootstrapState`, `bootstrapWarmup`, `publicRewardObjective`, schema/dryrun/render-trace endpoints, `decodedSubstrateUri`, timeout recovery, pending-receipt recovery, `lastAcceptedStateAdvancePatchShape`. Treat it as dynamic; the live substrate supersedes older cold-start notes. |
+| `perMiner` | `{ screenersThisEpoch, remaining, cap, nextIndex, lastReceiptHash, evalAdmissions*, pendingReceipt? }`. `nextIndex`+`lastReceiptHash` are the **shared** V4 cursor across both lanes; the coordinator signs CoreTex receipts against exactly these. If `pendingReceipt.mustBroadcast=true`, the receipt still matches the live root and cursor; do not submit another CoreTex patch from this wallet until you broadcast the receipt at `pendingReceipt.receiptUrl` or it expires. |
 | `statusSnapshot` | cache metadata for the status envelope (`source`, `ageMs`, `ttlMs`). Public status can be cached/stale during RPC pressure. For receipt-cursor checks, use authenticated miner status and require a fresh or very recent snapshot before broadcasting. |
 
 Hidden data (hidden qrels, eval-pack contents, hidden answer IDs, canary rows,
@@ -287,11 +290,9 @@ curl -s "${COORDINATOR_URL}/coretex/status?miner=$MINER_ADDRESS" -H "Authorizati
 
 `substrateBootstrapState` summarizes decoded anchors, routing anchors, category
 lenses, temporal records, and policy atoms on the current root, plus a
-`bootstrapWarmup` guidance block (preferred surfaces, per-edge framing, an
-`avoid` list, and a `preSubmitGate`). Expect populated MemoryIndex, temporal,
-conflict, evidence, and relation-lens surfaces on the live root. Mine new
-public-evidence-backed movement on top of that base; do not copy populated
-scaffold slots or assume every policy anchor is a routing anchor.
+`bootstrapWarmup` guidance block. Mine new public-evidence-backed movement on
+top of the live base; do not copy populated scaffold slots or assume every policy
+anchor is a routing anchor.
 Inspect decoded slots and prefer resolved public targets:
 
 ```bash
@@ -339,21 +340,14 @@ The map endpoints are keyed objects, not arrays
 (`family-summary.families.near_collision`, `relation-summary.relations.causes`).
 Public `family=` filters match `event.family`; they are not hidden-pack quota
 mirrors. If `family=temporal` or `family=conflict_lifecycle` returns zero rows,
-do not conclude the surface is absent or unwinnable. Use `surface=temporal_update`,
-`surface=conflict_lifecycle`, `relation=supersedes`, `relation=supports`,
-`relation=causes`, `relation=coreference_of`, `relation-summary`, and
-`family-summary.surfaceSummary` to inspect public motifs.
-The useful move is to derive compact patches that help **many** public cases and
-plausibly generalize to held-out scorer packs. Single-event hidden guessing just
-burns intake. A 404 on a hidden event ID is a privacy boundary, not a signal to
-brute-force.
+use `surface=temporal_update`, `surface=conflict_lifecycle`,
+`relation=supersedes`, `relation=supports`, `relation=causes`, and
+`relation-summary` instead of concluding the surface is absent.
 
-Render-trace `querySample` rows are a microscope, not a shopping list. Use them
-to understand repeated public motifs, header/source-tag behavior, and why a patch
-is inert or ambiguous; then validate the generalized hypothesis across corpus
-summaries, filtered query examples, truth documents, hard negatives, and local
-`coretex-client` replay when available. Do not mine by patching one sampled
-query or one sampled MemoryIndex slot at a time.
+The useful move is to derive compact patches that help **many** public cases and
+plausibly generalize to held-out scorer packs. Treat render-trace `querySample`
+rows as diagnostics, not targets to patch one by one. Single-event hidden
+guessing burns intake; a 404 on a hidden event ID is a privacy boundary.
 
 `renderedHeaderDiff.beforeHeader` / `afterHeader` are Memory-IR diagnostics for
 a representative query frame, not canonical truth labels for the sampled event or
@@ -361,24 +355,23 @@ document. For example, `lifecycle=superseded` in a trace header can reflect the
 query's lifecycle intent or route context; it is not by itself proof that that
 document is incorrectly marked stale.
 
-Surface → shape orientation (the live schema is authoritative):
+Surface orientation (the live schema is authoritative):
 
 | public query / corpus pattern | target surface | likely patch shape |
 |---|---|---|
 | support / causal / bridge-hop / provenance, with public truth/hard-negative separation | `relation_category_routing` | `RELATION_UPDATE` category-lens cell; anchored `relation_edge` is not the default launch mining path |
 | current vs stale / superseded / lifecycle | `temporal_update` | `TEMPORAL_UPDATE` pointing at resolved MemoryIndex slots; full Memory-IR + bounded temporal motif admission are live, but public current/stale evidence still matters |
-| support-density / bridge-hop / bundled evidence (tied to `multi_hop_relation`) | `evidence_bundle` | secondary/experimental `POLICY_UPDATE` evidence atom with resolved targetSlot; evidence motif admission is disabled, so avoid evidence-only submits |
-| scoped contradictions / current-preference conflicts | `conflict_lifecycle` | `POLICY_UPDATE` conflict atom with resolved targetSlot; bounded conflict motif admission is live but selective |
+| support-density / bridge-hop / bundled evidence (tied to `multi_hop_relation`) | `evidence_bundle` | secondary `POLICY_UPDATE` evidence atom with resolved targetSlot; avoid evidence-only submits unless live guidance changes |
+| scoped contradictions / current-preference conflicts | `conflict_lifecycle` | `POLICY_UPDATE` conflict atom with resolved targetSlot |
 | missing-evidence / low-answer-density guards | `abstention_top1` | `POLICY_UPDATE` abstention atom (only with a real missing-evidence guard) |
 
-Current launch rails, based on the warmed substrate evidence:
+Surface priorities:
 
 - **Lead with query-first temporal and conflict patches.** Use public examples
   where a current/stale lifecycle or scoped-conflict distinction is visible, then
-  encode a resolved temporal or conflict atom. The epoch 119 scorer has full
+  encode a resolved temporal or conflict atom. The live scorer profile uses full
   Memory-IR plus bounded temporal/conflict motif admission, so public motifs can
-  transfer beyond exact hidden-subject overlap; do not assume any slot pair with
-  shared domain bits is useful.
+  transfer beyond exact hidden-subject overlap.
 - **For relation work, prefer category-lens routing, not standalone anchored
   edges.** `supports` and `causes` lenses already exist on the current base; do
   not rewrite them at equal/lower weight. `derived_from` is conditional: submit
@@ -387,9 +380,9 @@ Current launch rails, based on the warmed substrate evidence:
   `coreference_of`, and `supersedes` lenses as exploratory controls unless the
   live schema promotes them.
 - **Evidence is secondary.** A resolved `evidence_bundle` targetSlot is not
-  enough by itself; evidence motif admission is disabled in the current launch
-  scorer profile. Use evidence atoms only when public support-density /
-  bridge-hop context shows how they help a quota-backed multi-hop relation case.
+  enough by itself. Use evidence atoms only when public support-density /
+  bridge-hop context shows how they help a quota-backed multi-hop relation case,
+  or when live guidance explicitly promotes evidence.
 - **Abstention is narrow.** Use it only for explicit public missing-evidence /
   no-public-path guardrails, not as a generic way to avoid hard relation or
   temporal work.
@@ -507,7 +500,7 @@ surface while the classifier is `no_surface_activation`.
 | `surface_activated_header_diff` | changed public rendered Memory-IR — necessary, not sufficient; still no rank/score guarantee. |
 | `surface_activated_no_header_diff` | a gate/routing signal fired but the header did not change; inspect target slots / relation intent before submitting. |
 | `surface_activated_collision_with_existing` | resembles structure already active; choose a non-no-op variant. |
-| `no_surface_activation` | no public activation observed; submitting usually just burns intake. |
+| `no_surface_activation` | no public activation observed; submitting usually just burns intake. Exception: for resolved `conflict_lifecycle` patches with a broad scoped-conflict motif, treat it as uninformative and require local client scorer support. |
 
 For anchor-dependent (policy/temporal/anchored-relation) patches, also check
 `anchorResolution`: if `resolvedReferenceCount` is `0`, the scorer has no
@@ -542,6 +535,14 @@ while an attempt is pending.** A very early poll can briefly return
 `CoreTexAttemptNotFound` before the queued job draws its seed — wait
 `pollAfterSeconds` and poll once more before treating it as a miss.
 
+If the coordinator already has an unexpired receipt whose parent root,
+`solveIndex`, and `prevReceiptHash` still match the live root and V4 cursor,
+submit returns **409** `PENDING_CORETEX_RECEIPT_MUST_BROADCAST` before wallet
+intake and before scorer work. This is not a patch rejection and not a rate
+limit. Fetch the returned `receiptUrl`, confirm it still includes a
+`transaction`, broadcast it, then refresh miner-scoped status. If it expires
+first, re-fetch status and build against the current root/cursor.
+
 Operational responses that are **not** patch results (back off, keep polling
 `/coretex/health` + `/coretex/status`; none score or charge an attempt):
 `401` (missing bearer), `503 coretex-auth-not-enabled` (auth mis-provisioned),
@@ -572,28 +573,33 @@ seeds, qrels, or other miners' outcomes. While recovering an accepted attempt,
 pause any standard-lane miner on the same wallet — a standard receipt can consume
 the same `nextIndex` and brick the recovered CoreTex receipt.
 
-**Recovery-loop discipline (the recovery poll is long-lived — treat it as such):**
-
-- **A transport error while polling `/attempt` means "unknown — keep polling," never "terminal."** A connection reset, HTTP 524, or timeout on the *lookup itself* tells you nothing about the attempt. Only a `200 rejected`, `200 accepted`, `409 stalled`, or `409 receipt_unavailable` body is terminal. Until you get one of those, the attempt may still be `drawn` and may still sign a receipt against your current `nextIndex`, so do **not** submit or broadcast anything else from that wallet.
-- **Refresh auth inside the recovery loop, not just around submit/status.** A drawn attempt can stay `pending` for many minutes (the coordinator only converts it to `409 CoreTexAttemptStalled` after its recovery window), which can outlast your bearer token's TTL. Handle `401 token_expired` *in the poll loop* — re-auth and continue polling the same `attemptUrl`; a 401 is not a terminal attempt result.
-- **A `404` from `/coretex/receipt/:hash` while `/attempt` still says `pending` means "not signed yet," not "lost."** The receipt endpoint reports `unknown patchHash (not signed by this coordinator)` for both never-signed and not-yet-signed hashes. During recovery, **`/attempt` is the source of truth**, not `/receipt`: keep polling `/attempt` and only fetch `/receipt` once `/attempt` returns `accepted` + `receiptAvailable:true`. If `/attempt` reaches `409 stalled` with no receipt, resubmit the **same** patch once (it reuses the pinned seed/admission); do not assume the 404 meant your patch was discarded.
+**Recovery-loop discipline:** transport errors and `401 token_expired` during
+polling are not terminal; refresh auth and keep polling. `/attempt` is the source
+of truth until it returns `rejected`, `accepted`, `stalled`, or
+`receipt_unavailable`. Only fetch `/receipt/:hash` after `/attempt` says
+`accepted` + `receiptAvailable:true`. A `409 PendingReceiptStaleCursor` from the
+receipt endpoint means the wallet cursor moved and that receipt is bricked.
 
 **The submit envelope is one of three:**
 
-**rejected** — structural (`E0x`/`DECODE`) or scoring-gate. Always has `status`,
-`reason`, `code`. The per-patch score is **never** returned.
+**rejected** — structural (`E0x`/`DECODE`), scoring-gate, or submit-block.
+Always has `status`, `reason`, `code`. The per-patch score is **never**
+returned.
 
 ```json
 { "status": "rejected", "reason": "…", "code": "W03_DETERMINISTIC_DELTA_TOO_LOW" }
 ```
 
-Scoring-gate codes: `W02_STALE_PARENT_AT_SIGNING` (root moved between request and
-signing; includes `currentStateRoot`), `W03_DETERMINISTIC_DELTA_TOO_LOW` (below
+Scoring-gate and submit-block codes: `W02_STALE_PARENT_AT_SIGNING` (root moved
+between request and signing; includes `currentStateRoot`),
+`W03_DETERMINISTIC_DELTA_TOO_LOW` (below
 `screenerThresholdPpm` — the most common), `SCORER_REJECTED` (scorer ran the
 hidden packs and rejected; treat like score-low and vary the patch),
 `duplicate_submission` / `DuplicateCoreTexPatch` (this `(parent, patchHash)` was
 already credited this epoch), `CoreTexImprovementTooSmall` (`STATE_ADVANCE` delta
-below `minImprovementPpm`).
+below `minImprovementPpm`), `PENDING_CORETEX_RECEIPT_MUST_BROADCAST` (a prior
+receipt is still live-root/current-cursor broadcastable; fetch `receiptUrl` and
+post it instead of submitting another patch).
 
 **accepted → SCREENER_PASS** — scored ≥ `screenerThresholdPpm` but below the
 state-advance floor. Signed receipt + pre-encoded V4 calldata; broadcast it. It
@@ -648,7 +654,8 @@ cast send "$BOTCOIN_MINING_CONTRACT_ADDRESS" \
   "$RECEIPT_TUPLE_FROM_COORDINATOR" --rpc-url "$BASE_RPC_URL" --private-key "$MINER_PK"
 ```
 
-Do **not** modify any receipt field. Keep the tx hash. If it reverts because
+Do **not** modify any receipt field. Keep the tx hash. If `/coretex/receipt/:hash`
+returns `PendingReceiptStaleCursor` or the tx reverts because
 `solveIndex`/`prevReceiptHash` no longer matches your V4 cursor, don't retry the
 same receipt — re-fetch status and submit a fresh patch.
 
@@ -707,6 +714,8 @@ skill's Error Handling section):
 - **`EvalFailure` / `SCORER_TRANSPORT_FAILURE` / `SCORER_SEED_DRAW_FAILURE`** — scorer or seed-draw infrastructure failed; not a useful semantic score signal. Recover the attempt if one exists, then retry only after status/health look stable.
 - **`WorkReceiptExpired`** — receipt TTL (≤ 1h) elapsed; request a new one.
 - **Receipt-chain / cursor mismatch on-chain** — another receipt from the same wallet landed first; the stale receipt can't be repaired. Re-fetch status, confirm `perMiner.nextIndex`/`lastReceiptHash`, submit fresh. Prevent it by pausing the standard miner while a CoreTex receipt is pending.
+- **`PENDING_CORETEX_RECEIPT_MUST_BROADCAST`** — a prior unexpired CoreTex receipt still matches the live root and your live wallet cursor. This submit did not consume wallet intake or scorer work. Fetch the returned `receiptUrl`, broadcast the transaction if present, or wait for expiry before submitting again.
+- **`PendingReceiptStaleCursor`** — the receipt exists but the wallet V4 cursor moved; the coordinator strips `transaction` so you cannot broadcast a doomed tx. Do not retry that receipt. Re-fetch status and submit fresh.
 - **`coretex-global-wallet-rate-limited`** — shared wallet intake fired; wait the full `retryAfterSeconds`, re-fetch status, submit once.
 - **`epoch_cutover_unavailable` / `awaiting_cutover_start`** — fail-closed during cutover; not a scored rejection.
 - **HTTP 524 / transport timeout** — not proof the patch was unprocessed; run the attempt-recovery flow above before resubmitting.
