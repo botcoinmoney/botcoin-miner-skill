@@ -64,13 +64,15 @@ between earning credit and burning wallet intake.
    lone arbitrary MemoryIndex anchors, or spend intake on relation/conflict as a
    primary target. Those are infrastructure/no-op/inert shapes, not mining
    strategy.
-   **Since epoch 133 the live-eval overlay law is active and each epoch's evolve
-   mints fresh typed supersession clusters**: a public doc triple (a CURRENT
-   record, a STALE trap record, and a CHANGE-PROVENANCE record for the same
-   subject/attribute) whose hidden evaluation spans four question types
-   (current-value, stale-verification, downstream-application,
-   change-provenance). The mineable move is the temporal-record memory
-   operation over the **newest** such `zz_e*` doc triples — find them via
+   **Since epoch 133 the live-eval overlay law is active, and epochs with a
+   real corpus evolve mint fresh typed supersession clusters**: a public doc
+   triple (a CURRENT record, a STALE trap record, and a CHANGE-PROVENANCE
+   record for the same subject/attribute) whose hidden evaluation spans four
+   question types (current-value, stale-verification, downstream-application,
+   change-provenance). Not every epoch evolves — quiet epochs roll the corpus
+   forward unchanged, and the newest triples already in the corpus remain the
+   live targets. So never assume the current epoch minted new ones: work from
+   the **newest `zz_e*` doc triples actually present** — find them via
    `/coretex/public-corpus/query-examples?surface=temporal_update` and the
    events feed (newest first), then encode the ≤4-cell temporal patch that marks
    the stale record superseded by the current one. The parent baseline is now
