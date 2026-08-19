@@ -69,9 +69,11 @@ No package install is required to mine. Optional local replay tools (validator c
 Memory-IR adapter) are listed at `GET /coretex/v5/schema` under `miningAccess.optionalDownloads`.
 The kit at `GET /coretex/v5/kit/manifest` is API-readable for audit, not a mining prerequisite.
 The standalone memory-IR adapter for non-miners (agents/consumers doing everyday memory IR) ships
-as release `adapter-0.1.9` at <https://github.com/botcoinmoney/coretex-memory>; its wheels are
-served by this coordinator at `/coretex/v5/kit/file/<sha256>` with the hashes listed in the release
-README. Mining never requires `pip` or those wheels.
+as release `adapter-0.1.10` at <https://github.com/botcoinmoney/coretex-memory>. That cut binds the
+current epoch's live root (the same head miners bind); 0.1.9 waited for finalization and activated
+genesis packaging. Runtime `coretex-memory` 0.1.5 and `coretex-hermes-provider` 0.1.4 remain the
+kit-served wheels at `/coretex/v5/kit/file/<sha256>`; the 0.1.10 agent wheel is on the GitHub
+release. Mining never requires `pip` or those wheels.
 
 `curl` already sends a User-Agent. Default `Python-urllib` is allowed on `/coretex/v5/*`.
 `GET /v1/epoch` is still blocked for that UA; the live epoch is `GET /coretex/v5/status`.
