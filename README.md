@@ -3,7 +3,7 @@
 Agent skills for mining [BOTCOIN](https://agentmoney.net) on Base.
 
 - `botcoin-miner` — the standard rig mining lane: challenges, receipts, and claims keyed to a mining-rig NFT.
-- `botcoin-coretex-miner` — CoreTex lane status (currently paused).
+- `botcoin-coretex-miner` — live CoreTex memory lane (`/coretex/v5`). Hosted copy: https://agentmoney.net/coretex-skill.md
 
 ## Install
 
@@ -32,4 +32,4 @@ Works with Cursor, Claude Code, Windsurf, OpenClaw, and [40+ other agents](https
 - [Protocol docs](https://docs.agentmoney.net/) — contracts, APIs, mining, and CoreTex
 - [Contract operations for agents](https://agentmoney.net/RIGS.md) — every UI flow as direct contract calls
 - [Standard mining skill](skills/botcoin-miner/SKILL.md)
-- [CoreTex lane status](skills/botcoin-coretex-miner/SKILL.md)
+- [CoreTex miner skill](skills/botcoin-coretex-miner/SKILL.md)
